@@ -35,6 +35,69 @@
 
 #include "sched.h"
 
+#include <linux/module.h>
+
+/******************************************************************************/
+/* Wrappers                                                                   */
+/******************************************************************************/
+struct rq *sp_cpu_rq(int cpu) {
+    return cpu_rq(cpu);
+}
+
+EXPORT_SYMBOL(sp_cpu_rq);
+
+/******************************************************************************/
+/* Hook type definitions                                                      */
+/******************************************************************************/
+typedef void (*set_nr_running_t)(int *, int, int);
+typedef void (*record_load_change_t)(unsigned long, int);
+
+/******************************************************************************/
+/* Hooks                                                                      */
+/******************************************************************************/
+__read_mostly volatile set_nr_running_t sp_module_set_nr_running = NULL;
+__read_mostly volatile record_load_change_t
+              sp_module_record_load_change = NULL;
+
+/******************************************************************************/
+/* Default hook implementations                                               */
+/******************************************************************************/
+void sp_set_nr_running(int *nr_running_p, int new_nr_running, int dst_cpu)
+{
+    if (sp_module_set_nr_running)
+        (*sp_module_set_nr_running)(nr_running_p, new_nr_running, dst_cpu);
+    else
+        *nr_running_p = new_nr_running;
+}
+
+void sp_record_load_change(unsigned long load, int cpu)
+{
+    if (sp_module_record_load_change)
+        (*sp_module_record_load_change)(load, cpu);
+}
+
+/******************************************************************************/
+/* Hook setters                                                               */
+/******************************************************************************/
+void set_sp_module_set_nr_running(set_nr_running_t __sp_module_set_nr_running)
+{
+    sp_module_set_nr_running = __sp_module_set_nr_running;
+
+}
+
+void set_sp_module_record_load_change
+    (record_load_change_t __sp_module_record_load_change)
+{
+    sp_module_record_load_change = __sp_module_record_load_change;
+}
+
+/******************************************************************************/
+/* Symbols                                                                    */
+/******************************************************************************/
+EXPORT_SYMBOL(set_sp_module_set_nr_running);
+EXPORT_SYMBOL(set_sp_module_record_load_change);
+
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
@@ -2291,7 +2354,10 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	update_load_add(&cfs_rq->load, se->load.weight);
 	if (!parent_entity(se))
+	{
 		update_load_add(&rq_of(cfs_rq)->load, se->load.weight);
+		sp_record_load_change(rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
+	}
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
 		struct rq *rq = rq_of(cfs_rq);
@@ -2308,7 +2374,10 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	update_load_sub(&cfs_rq->load, se->load.weight);
 	if (!parent_entity(se))
+	{
 		update_load_sub(&rq_of(cfs_rq)->load, se->load.weight);
+		sp_record_load_change(rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
+	}
 	if (entity_is_task(se)) {
 		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
 		list_del_init(&se->group_node);
