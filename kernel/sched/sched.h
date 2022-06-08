@@ -45,6 +45,24 @@
 # define SCHED_WARN_ON(x)	({ (void)(x), 0; })
 #endif
 
+extern void sp_set_nr_running(int *nr_running_p, int nr_running, int dst_cpu);
+extern void sp_record_load_change(unsigned long load, int cpu);
+
+enum {
+    SP_SCHED_EXEC = 0,
+    SP_TRY_TO_WAKE_UP,
+    SP_WAKE_UP_NEW_TASK,
+    SP_IDLE_BALANCE,
+    SP_REBALANCE_DOMAINS,
+    SP_MOVE_TASKS = 10,
+    SP_ACTIVE_LOAD_BALANCE_CPU_STOP = 20,
+    SP_CONSIDERED_CORES_SIS = 200,
+    SP_CONSIDERED_CORES_USLS,
+    SP_CONSIDERED_CORES_FBQ,
+    SP_CONSIDERED_CORES_FIG,
+    SP_CONSIDERED_CORES_FIC
+};
+
 struct rq;
 struct cpuidle_state;
 
@@ -1618,7 +1636,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 {
 	unsigned prev_nr = rq->nr_running;
 
-	rq->nr_running = prev_nr + count;
+	// rq->nr_running = prev_nr + count;
+	sp_set_nr_running(&rq->nr_running, prev_nr + count, cpu_of(rq));
 
 	if (prev_nr < 2 && rq->nr_running >= 2) {
 #ifdef CONFIG_SMP
@@ -1632,7 +1651,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
-	rq->nr_running -= count;
+	// rq->nr_running -= count;
+	sp_set_nr_running(&rq->nr_running, rq->nr_running - count, cpu_of(rq));
 	/* Check if we still need preemption */
 	sched_update_tick_dependency(rq);
 }
