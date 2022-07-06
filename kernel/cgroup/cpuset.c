@@ -68,6 +68,27 @@ DEFINE_STATIC_KEY_FALSE(cpusets_pre_enable_key);
 DEFINE_STATIC_KEY_FALSE(cpusets_enabled_key);
 
 /* See "Frequency meter" comments, below. */
+#include <linux/module.h>
+extern void sp_record_file_writing(void);
+
+typedef void (*record_file_writing_t)(void);
+
+__read_mostly volatile record_file_writing_t
+			  sp_module_record_file_writing = NULL;
+
+void sp_record_file_writing(void)
+{
+	if (sp_module_record_file_writing)
+		(*sp_module_record_file_writing)();
+}
+
+void set_sp_module_record_file_writing
+	(record_file_writing_t __sp_module_record_file_writing)
+{
+	sp_module_record_file_writing = __sp_module_record_file_writing;
+}
+
+EXPORT_SYMBOL(set_sp_module_record_file_writing);
 
 struct fmeter {
 	int cnt;		/* unprocessed events count */
@@ -875,8 +896,10 @@ static void update_tasks_cpumask(struct cpuset *cs)
 	struct task_struct *task;
 
 	css_task_iter_start(&cs->css, 0, &it);
-	while ((task = css_task_iter_next(&it)))
+	while ((task = css_task_iter_next(&it))){
+		sp_record_file_writing();
 		set_cpus_allowed_ptr(task, cs->effective_cpus);
+	}
 	css_task_iter_end(&it);
 }
 
@@ -989,6 +1012,7 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 		return retval;
 
 	spin_lock_irq(&callback_lock);
+	// Add a record here
 	cpumask_copy(cs->cpus_allowed, trialcs->cpus_allowed);
 	spin_unlock_irq(&callback_lock);
 
@@ -1676,6 +1700,7 @@ out_unlock:
 
 /*
  * Common handling for a write to a "cpus" or "mems" file.
+ * handler for cpuset.cpus
  */
 static ssize_t cpuset_write_resmask(struct kernfs_open_file *of,
 				    char *buf, size_t nbytes, loff_t off)
@@ -1721,6 +1746,7 @@ static ssize_t cpuset_write_resmask(struct kernfs_open_file *of,
 
 	switch (of_cft(of)->private) {
 	case FILE_CPULIST:
+		sp_record_file_writing();
 		retval = update_cpumask(cs, trialcs, buf);
 		break;
 	case FILE_MEMLIST:

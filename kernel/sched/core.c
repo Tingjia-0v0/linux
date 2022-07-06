@@ -1028,6 +1028,20 @@ static int migration_cpu_stop(void *data)
  */
 void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask)
 {
+	// actually update cpu_allowed
+	int i;
+	struct rq *rq;
+	struct sched_domain *sd;
+	sp_record_cpuallowed_change(this_rq()->cpu);
+
+	for_each_cpu(i, new_mask) {
+		rq = cpu_rq(i);
+		for_each_domain(i, sd) {
+			sd->balance_interval = 1;
+		}
+		trigger_load_balance(rq);
+	}
+	// change the interval of schedule domain for new allowed cpu
 	cpumask_copy(&p->cpus_allowed, new_mask);
 	p->nr_cpus_allowed = cpumask_weight(new_mask);
 }
@@ -1052,7 +1066,7 @@ void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask)
 	}
 	if (running)
 		put_prev_task(rq, p);
-
+	// set new cpus_allowed
 	p->sched_class->set_cpus_allowed(p, new_mask);
 
 	if (queued)
@@ -3031,6 +3045,8 @@ void scheduler_tick(void)
 
 #ifdef CONFIG_SMP
 	rq->idle_balance = idle_cpu(cpu);
+	// Calling load balance periodically
+	// sp_record_load_balance();
 	trigger_load_balance(rq);
 #endif
 	rq_last_tick_reset(rq);

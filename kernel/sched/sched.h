@@ -47,21 +47,32 @@
 
 extern void sp_set_nr_running(int *nr_running_p, int nr_running, int dst_cpu);
 extern void sp_record_load_change(unsigned long load, int cpu);
+extern void sp_record_load_balance(int src_cpu, int dst_cpu, int ld_moved);
+extern void sp_record_cpuallowed_change(int cpu);
+extern void sp_record_rebalance(int cpu, int level, int r);
+extern void sp_record_sd_cpus(int cpu);
+extern void sp_record_idle_balance(int cpu, int pulled_task);
+extern void sp_record_hotcache_rej(int src_cpu, int dst_cpu);
+extern void sp_record_sd_flag(int cpu, int level, int flag);
+extern void sp_record_sd_interval(int cpu, int level, unsigned int interval);
+extern void sp_record_cgroup_cpumask(int cpu);
+extern void sp_record_start_migration(int src_cpu, int dst_cpu);
+extern void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved);
 
-enum {
-    SP_SCHED_EXEC = 0,
-    SP_TRY_TO_WAKE_UP,
-    SP_WAKE_UP_NEW_TASK,
-    SP_IDLE_BALANCE,
-    SP_REBALANCE_DOMAINS,
-    SP_MOVE_TASKS = 10,
-    SP_ACTIVE_LOAD_BALANCE_CPU_STOP = 20,
-    SP_CONSIDERED_CORES_SIS = 200,
-    SP_CONSIDERED_CORES_USLS,
-    SP_CONSIDERED_CORES_FBQ,
-    SP_CONSIDERED_CORES_FIG,
-    SP_CONSIDERED_CORES_FIC
-};
+// enum {
+//     SP_SCHED_EXEC = 0,
+//     SP_TRY_TO_WAKE_UP,
+//     SP_WAKE_UP_NEW_TASK,
+//     SP_IDLE_BALANCE,
+//     SP_REBALANCE_DOMAINS,
+//     SP_MOVE_TASKS = 10,
+//     SP_ACTIVE_LOAD_BALANCE_CPU_STOP = 20,
+//     SP_CONSIDERED_CORES_SIS = 200,
+//     SP_CONSIDERED_CORES_USLS,
+//     SP_CONSIDERED_CORES_FBQ,
+//     SP_CONSIDERED_CORES_FIG,
+//     SP_CONSIDERED_CORES_FIC
+// };
 
 struct rq;
 struct cpuidle_state;

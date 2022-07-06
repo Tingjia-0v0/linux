@@ -55,6 +55,17 @@ EXPORT_SYMBOL(sp_cpu_rq);
 /******************************************************************************/
 typedef void (*set_nr_running_t)(int *, int, int);
 typedef void (*record_load_change_t)(unsigned long, int);
+typedef void (*record_load_balance_t)(int, int, int);
+typedef void (*record_cpuallowed_change_t)(int);
+typedef void (*record_rebalance_t)(int, int, int);
+typedef void (*record_sd_cpus_t)(int);
+typedef void (*record_idle_balance_t)(int, int);
+typedef void (*record_hotcache_rej_t)(int, int);
+typedef void (*record_sd_flag_t)(int, int, int);
+typedef void (*record_sd_interval_t)(int, int, unsigned int);
+typedef void (*record_cgroup_cpumask_t)(int);
+typedef void (*record_start_migration_t)(int, int);
+typedef void (*record_end_migration_t)(int, int, int);
 
 /******************************************************************************/
 /* Hooks                                                                      */
@@ -62,6 +73,28 @@ typedef void (*record_load_change_t)(unsigned long, int);
 __read_mostly volatile set_nr_running_t sp_module_set_nr_running = NULL;
 __read_mostly volatile record_load_change_t
               sp_module_record_load_change = NULL;
+__read_mostly volatile record_load_balance_t
+			  sp_module_record_load_balance = NULL;
+__read_mostly volatile record_cpuallowed_change_t
+			  sp_module_record_cpuallowed_change = NULL;
+__read_mostly volatile record_rebalance_t 
+			  sp_module_record_rebalance = NULL;
+__read_mostly volatile record_sd_cpus_t
+			  sp_module_record_sd_cpus = NULL;
+__read_mostly volatile record_idle_balance_t
+			  sp_module_record_idle_balance = NULL;
+__read_mostly volatile record_hotcache_rej_t
+			  sp_module_record_hotcache_rej = NULL;
+__read_mostly volatile record_sd_flag_t
+			  sp_module_record_sd_flag = NULL;
+__read_mostly volatile record_sd_interval_t
+			  sp_module_record_sd_interval = NULL;
+__read_mostly volatile record_cgroup_cpumask_t
+			  sp_module_record_cgroup_cpumask = NULL;
+__read_mostly volatile record_start_migration_t
+			  sp_module_record_start_migration = NULL;
+__read_mostly volatile record_end_migration_t
+			  sp_module_record_end_migration = NULL;
 
 /******************************************************************************/
 /* Default hook implementations                                               */
@@ -80,6 +113,72 @@ void sp_record_load_change(unsigned long load, int cpu)
         (*sp_module_record_load_change)(load, cpu);
 }
 
+void sp_record_load_balance(int src_cpu, int dst_cpu, int ld_moved)
+{
+	if (sp_module_record_load_balance)
+		(*sp_module_record_load_balance)(src_cpu, dst_cpu, ld_moved);
+}
+
+void sp_record_cpuallowed_change(int cpu)
+{
+	if (sp_module_record_cpuallowed_change)
+		(*sp_module_record_cpuallowed_change)(cpu);
+}
+
+void sp_record_rebalance(int cpu, int level, int r)
+{
+	if (sp_module_record_rebalance)
+		(*sp_module_record_rebalance)(cpu, level, r);
+}
+
+void sp_record_sd_cpus(int cpu)
+{
+	if (sp_module_record_sd_cpus)
+		(*sp_module_record_sd_cpus)(cpu);
+}
+
+void sp_record_idle_balance(int cpu, int pulled_task)
+{
+	if (sp_module_record_idle_balance)
+		(*sp_module_record_idle_balance)(cpu, pulled_task);
+}
+
+void sp_record_hotcache_rej(int src_cpu, int dst_cpu)
+{
+	if (sp_module_record_hotcache_rej)
+		(*sp_module_record_hotcache_rej)(src_cpu, dst_cpu);
+}
+
+void sp_record_sd_flag(int cpu, int level, int flag)
+{
+	if (sp_module_record_sd_flag)
+		(*sp_module_record_sd_flag)(cpu, level, flag);
+}
+
+void sp_record_sd_interval(int cpu, int level, unsigned int interval)
+{
+	if (sp_module_record_sd_interval)
+		(*sp_module_record_sd_interval)(cpu, level, interval);
+}
+
+void sp_record_cgroup_cpumask(int cpu)
+{
+	if (sp_module_record_cgroup_cpumask)
+		(*sp_module_record_cgroup_cpumask)(cpu);
+}
+
+void sp_record_start_migration(int src_cpu, int dst_cpu)
+{
+	if (sp_module_record_start_migration)
+		(*sp_module_record_start_migration)(src_cpu, dst_cpu);
+}
+
+void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved)
+{
+	if (sp_module_record_end_migration)
+		(*sp_module_record_end_migration)(src_cpu, dst_cpu, ld_moved);
+}
+
 /******************************************************************************/
 /* Hook setters                                                               */
 /******************************************************************************/
@@ -95,11 +194,88 @@ void set_sp_module_record_load_change
     sp_module_record_load_change = __sp_module_record_load_change;
 }
 
+void set_sp_module_record_load_balance
+	(record_load_balance_t __sp_module_record_load_balance)
+{
+	sp_module_record_load_balance = __sp_module_record_load_balance;
+}
+
+void set_sp_module_record_cpuallowed_change
+	(record_cpuallowed_change_t __sp_module_record_cpuallowed_change)
+{
+	sp_module_record_cpuallowed_change = __sp_module_record_cpuallowed_change;
+}
+
+void set_sp_module_record_rebalance
+	(record_rebalance_t __sp_module_record_rebalance)
+{
+	sp_module_record_rebalance = __sp_module_record_rebalance;
+}
+
+void set_sp_module_record_sd_cpus
+	(record_sd_cpus_t __sp_module_record_sd_cpus)
+{
+	sp_module_record_sd_cpus = __sp_module_record_sd_cpus;
+}
+
+void set_sp_module_record_idle_balance
+	(record_idle_balance_t __sp_module_record_idle_balance)
+{
+	sp_module_record_idle_balance = __sp_module_record_idle_balance;
+}
+
+void set_sp_module_record_hotcache_rej
+	(record_hotcache_rej_t __sp_module_record_hotcache_rej)
+{
+	sp_module_record_hotcache_rej = __sp_module_record_hotcache_rej;
+}
+
+void set_sp_module_record_sd_flag
+	(record_sd_flag_t __sp_module_record_sd_flag)
+{
+	sp_module_record_sd_flag = __sp_module_record_sd_flag;
+}
+
+void set_sp_module_record_sd_interval
+	(record_sd_interval_t __sp_module_record_sd_interval)
+{
+	sp_module_record_sd_interval = __sp_module_record_sd_interval;
+}
+
+void set_sp_module_record_cgroup_cpumask
+	(record_cgroup_cpumask_t __sp_module_record_cgroup_cpumask)
+{
+	sp_module_record_cgroup_cpumask = __sp_module_record_cgroup_cpumask;
+}
+
+void set_sp_module_record_start_migration
+	(record_start_migration_t __sp_module_record_start_migration)
+{
+	sp_module_record_start_migration = __sp_module_record_start_migration;
+}
+
+void set_sp_module_record_end_migration
+	(record_end_migration_t __sp_module_record_end_migration)
+{
+	sp_module_record_end_migration = __sp_module_record_end_migration;
+}
+
 /******************************************************************************/
 /* Symbols                                                                    */
 /******************************************************************************/
 EXPORT_SYMBOL(set_sp_module_set_nr_running);
 EXPORT_SYMBOL(set_sp_module_record_load_change);
+EXPORT_SYMBOL(set_sp_module_record_load_balance);
+EXPORT_SYMBOL(set_sp_module_record_cpuallowed_change);
+EXPORT_SYMBOL(set_sp_module_record_rebalance);
+EXPORT_SYMBOL(set_sp_module_record_sd_cpus);
+EXPORT_SYMBOL(set_sp_module_record_idle_balance);
+EXPORT_SYMBOL(set_sp_module_record_hotcache_rej);
+EXPORT_SYMBOL(set_sp_module_record_sd_flag);
+EXPORT_SYMBOL(set_sp_module_record_sd_interval);
+EXPORT_SYMBOL(set_sp_module_record_cgroup_cpumask);
+EXPORT_SYMBOL(set_sp_module_record_start_migration);
+EXPORT_SYMBOL(set_sp_module_record_end_migration);
 
 
 /*
@@ -7204,6 +7380,10 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 			schedstat_inc(p->se.statistics.nr_forced_migrations);
 		}
 		return 1;
+	} else
+	{
+		// record cache is hot while migrating
+		sp_record_hotcache_rej(env->src_cpu, env->dst_cpu);
 	}
 
 	schedstat_inc(p->se.statistics.nr_failed_migrations_hot);
@@ -8556,6 +8736,7 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 	schedstat_inc(sd->lb_count[idle]);
 
 redo:
+	// if this cpu is the first idle cpu or group balance cpu
 	if (!should_we_balance(&env)) {
 		*continue_balancing = 0;
 		goto out_balanced;
@@ -8592,6 +8773,8 @@ redo:
 		env.loop_max  = min(sysctl_sched_nr_migrate, busiest->nr_running);
 
 more_balance:
+		// start migration
+		sp_record_start_migration(busiest->cpu, this_cpu);
 		rq_lock_irqsave(busiest, &rf);
 		update_rq_clock(busiest);
 
@@ -8600,6 +8783,9 @@ more_balance:
 		 * ld_moved     - cumulative load moved across iterations
 		 */
 		cur_ld_moved = detach_tasks(&env);
+
+		// record busiest cpu and dst cpu
+		// sp_record_load_balance(busiest->cpu, this_cpu, cur_ld_moved);
 
 		/*
 		 * We've detached some tasks from busiest_rq. Every
@@ -8617,6 +8803,8 @@ more_balance:
 		}
 
 		local_irq_restore(rf.flags);
+		// End migration
+		sp_record_end_migration(busiest->cpu, this_cpu, cur_ld_moved);
 
 		if (env.flags & LBF_NEED_BREAK) {
 			env.flags &= ~LBF_NEED_BREAK;
@@ -8888,7 +9076,8 @@ static int idle_balance(struct rq *this_rq, struct rq_flags *rf)
 			domain_cost = sched_clock_cpu(this_cpu) - t0;
 			if (domain_cost > sd->max_newidle_lb_cost)
 				sd->max_newidle_lb_cost = domain_cost;
-
+			// record idle_balance with cpu, pulled task
+			sp_record_idle_balance(this_cpu, pulled_task);
 			curr_cost += domain_cost;
 		}
 
@@ -9180,6 +9369,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 {
 	int continue_balancing = 1;
 	int cpu = rq->cpu;
+	sp_record_sd_cpus(cpu);
 	unsigned long interval;
 	struct sched_domain *sd;
 	/* Earliest time when we have to do rebalance again */
@@ -9191,7 +9381,10 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	update_blocked_averages(cpu);
 
 	rcu_read_lock();
+	// rebalance algorithm
 	for_each_domain(cpu, sd) {
+		// record flag with cpu and sd
+		sp_record_sd_flag(cpu, sd->level, sd->flags);
 		/*
 		 * Decay the newidle max times here because this is a regular
 		 * visit to all the domains. Decay ~1% per second.
@@ -9220,14 +9413,27 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 
 		interval = get_sd_balance_interval(sd, idle != CPU_IDLE);
 
+		// record interval with cpu and sd
+		sp_record_sd_interval(cpu, sd->level, jiffies_to_usecs(interval));
 		need_serialize = sd->flags & SD_SERIALIZE;
 		if (need_serialize) {
 			if (!spin_trylock(&balancing))
 				goto out;
 		}
+		// record jiffies, last_balance, interval
 
 		if (time_after_eq(jiffies, sd->last_balance + interval)) {
-			if (load_balance(cpu, rq, sd, idle, &continue_balancing)) {
+			// record the cpu, sd, idle
+			
+			int r = load_balance(cpu, rq, sd, idle, &continue_balancing);
+
+			sp_record_rebalance(cpu, sd->level, continue_balancing);
+			
+			// for_each_cpu(i, sched_domain_span(sd)) {
+			// 	sp_record_sd_cpus(i);
+			// }
+			
+			if (r) {
 				/*
 				 * The LBF_DST_PINNED logic could have changed
 				 * env->dst_cpu, so we can't know our idle
