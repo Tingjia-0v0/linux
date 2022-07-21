@@ -900,6 +900,8 @@ static void update_tasks_cpumask(struct cpuset *cs)
 		sp_record_file_writing();
 		set_cpus_allowed_ptr(task, cs->effective_cpus);
 	}
+	// call load balance
+	trigger_rebalance_after_changing(cs->effective_cpus);
 	css_task_iter_end(&it);
 }
 

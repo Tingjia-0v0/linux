@@ -1029,18 +1029,18 @@ static int migration_cpu_stop(void *data)
 void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask)
 {
 	// actually update cpu_allowed
-	int i;
-	struct rq *rq;
-	struct sched_domain *sd;
-	sp_record_cpuallowed_change(this_rq()->cpu);
+	// int i;
+	// struct rq *rq;
+	// struct sched_domain *sd;
+	// sp_record_cpuallowed_change(this_rq()->cpu);
 
-	for_each_cpu(i, new_mask) {
-		rq = cpu_rq(i);
-		for_each_domain(i, sd) {
-			sd->balance_interval = 1;
-		}
-		trigger_load_balance(rq);
-	}
+	// for_each_cpu(i, new_mask) {
+	// 	rq = cpu_rq(i);
+	// 	for_each_domain(i, sd) {
+	// 		sd->balance_interval = 1;
+	// 	}
+	// 	trigger_load_balance(rq);
+	// }
 	// change the interval of schedule domain for new allowed cpu
 	cpumask_copy(&p->cpus_allowed, new_mask);
 	p->nr_cpus_allowed = cpumask_weight(new_mask);
@@ -1162,6 +1162,25 @@ int set_cpus_allowed_ptr(struct task_struct *p, const struct cpumask *new_mask)
 	return __set_cpus_allowed_ptr(p, new_mask, false);
 }
 EXPORT_SYMBOL_GPL(set_cpus_allowed_ptr);
+
+
+void trigger_rebalance_after_changing(const struct cpumask * new_mask)
+{
+	int cpu;
+	struct rq *rq;
+	int i = 0;
+	for (i = 0; i < 3; i++) {
+		for_each_possible_cpu(cpu) {
+			rq = cpu_rq(cpu);
+			enum cpu_idle_type idle = rq->idle_balance ?
+				CPU_IDLE : CPU_NOT_IDLE;
+			(fair_sched_class).rebalance_domains(rq, idle, 0);
+
+		}
+	}
+	
+}
+EXPORT_SYMBOL_GPL(trigger_rebalance_after_changing);
 
 void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 {

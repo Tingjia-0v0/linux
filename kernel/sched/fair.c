@@ -66,6 +66,7 @@ typedef void (*record_sd_interval_t)(int, int, unsigned int);
 typedef void (*record_cgroup_cpumask_t)(int);
 typedef void (*record_start_migration_t)(int, int);
 typedef void (*record_end_migration_t)(int, int, int);
+typedef void (*record_busiest_t)(int);
 
 /******************************************************************************/
 /* Hooks                                                                      */
@@ -95,6 +96,8 @@ __read_mostly volatile record_start_migration_t
 			  sp_module_record_start_migration = NULL;
 __read_mostly volatile record_end_migration_t
 			  sp_module_record_end_migration = NULL;
+__read_mostly volatile record_busiest_t
+			  sp_module_record_busiest = NULL;
 
 /******************************************************************************/
 /* Default hook implementations                                               */
@@ -179,6 +182,12 @@ void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved)
 		(*sp_module_record_end_migration)(src_cpu, dst_cpu, ld_moved);
 }
 
+void sp_record_busiest(int cpu)
+{
+	if (sp_module_record_busiest)
+		(*sp_module_record_busiest)(cpu);
+}
+
 /******************************************************************************/
 /* Hook setters                                                               */
 /******************************************************************************/
@@ -260,6 +269,12 @@ void set_sp_module_record_end_migration
 	sp_module_record_end_migration = __sp_module_record_end_migration;
 }
 
+void set_sp_module_record_busiest
+	(record_busiest_t __sp_module_record_busiest)
+{
+	sp_module_record_busiest = __sp_module_record_busiest;
+}
+
 /******************************************************************************/
 /* Symbols                                                                    */
 /******************************************************************************/
@@ -276,7 +291,7 @@ EXPORT_SYMBOL(set_sp_module_record_sd_interval);
 EXPORT_SYMBOL(set_sp_module_record_cgroup_cpumask);
 EXPORT_SYMBOL(set_sp_module_record_start_migration);
 EXPORT_SYMBOL(set_sp_module_record_end_migration);
-
+EXPORT_SYMBOL(set_sp_module_record_busiest);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -8710,7 +8725,7 @@ static int should_we_balance(struct lb_env *env)
  */
 static int load_balance(int this_cpu, struct rq *this_rq,
 			struct sched_domain *sd, enum cpu_idle_type idle,
-			int *continue_balancing)
+			int *continue_balancing, int opt)
 {
 	int ld_moved, cur_ld_moved, active_balance = 0;
 	struct sched_domain *sd_parent = sd->parent;
@@ -8737,7 +8752,7 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 
 redo:
 	// if this cpu is the first idle cpu or group balance cpu
-	if (!should_we_balance(&env)) {
+	if ((opt) && !should_we_balance(&env)) {
 		*continue_balancing = 0;
 		goto out_balanced;
 	}
@@ -8753,7 +8768,7 @@ redo:
 		schedstat_inc(sd->lb_nobusyq[idle]);
 		goto out_balanced;
 	}
-
+	sp_record_busiest(busiest->cpu);
 	BUG_ON(busiest == env.dst_rq);
 
 	schedstat_add(sd->lb_imbalance[idle], env.imbalance);
@@ -8929,7 +8944,7 @@ more_balance:
 	} else
 		sd->nr_balance_failed = 0;
 
-	if (likely(!active_balance)) {
+	if (likely(!active_balance) || (!opt)) {
 		/* We were unbalanced, so reset the balancing interval */
 		sd->balance_interval = sd->min_interval;
 	} else {
@@ -9071,7 +9086,7 @@ static int idle_balance(struct rq *this_rq, struct rq_flags *rf)
 
 			pulled_task = load_balance(this_cpu, this_rq,
 						   sd, CPU_NEWLY_IDLE,
-						   &continue_balancing);
+						   &continue_balancing, 1);
 
 			domain_cost = sched_clock_cpu(this_cpu) - t0;
 			if (domain_cost > sd->max_newidle_lb_cost)
@@ -9365,7 +9380,7 @@ void update_max_interval(void)
  *
  * Balancing parameters are set up in init_sched_domains.
  */
-static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
+static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle, int opt)
 {
 	int continue_balancing = 1;
 	int cpu = rq->cpu;
@@ -9422,10 +9437,10 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 		}
 		// record jiffies, last_balance, interval
 
-		if (time_after_eq(jiffies, sd->last_balance + interval)) {
+		if ( (!opt) || time_after_eq(jiffies, sd->last_balance + interval)) {
 			// record the cpu, sd, idle
 			
-			int r = load_balance(cpu, rq, sd, idle, &continue_balancing);
+			int r = load_balance(cpu, rq, sd, idle, &continue_balancing, opt);
 
 			sp_record_rebalance(cpu, sd->level, continue_balancing);
 			
@@ -9529,7 +9544,7 @@ static void nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle)
 			cpu_load_update_idle(rq);
 			rq_unlock_irq(rq, &rf);
 
-			rebalance_domains(rq, CPU_IDLE);
+			rebalance_domains(rq, CPU_IDLE, 1);
 		}
 
 		if (time_after(next_balance, rq->next_balance)) {
@@ -9655,7 +9670,7 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	 * and abort nohz_idle_balance altogether if we pull some load.
 	 */
 	nohz_idle_balance(this_rq, idle);
-	rebalance_domains(this_rq, idle);
+	rebalance_domains(this_rq, idle, 1);
 }
 
 /*
@@ -9664,10 +9679,13 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 void trigger_load_balance(struct rq *rq)
 {
 	/* Don't need to rebalance while attached to NULL domain */
+	// sp_record_load_balance(0, 0, 0);
 	if (unlikely(on_null_domain(rq)))
 		return;
 
 	if (time_after_eq(jiffies, rq->next_balance))
+		// record here
+		// sp_record_load_balance(1, 1, 1);
 		raise_softirq(SCHED_SOFTIRQ);
 #ifdef CONFIG_NO_HZ_COMMON
 	if (nohz_kick_needed(rq))
@@ -10188,6 +10206,7 @@ const struct sched_class fair_sched_class = {
 
 	.task_dead		= task_dead_fair,
 	.set_cpus_allowed	= set_cpus_allowed_common,
+	.rebalance_domains      = rebalance_domains,
 #endif
 
 	.set_curr_task          = set_curr_task_fair,

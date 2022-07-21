@@ -58,6 +58,7 @@ extern void sp_record_sd_interval(int cpu, int level, unsigned int interval);
 extern void sp_record_cgroup_cpumask(int cpu);
 extern void sp_record_start_migration(int src_cpu, int dst_cpu);
 extern void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved);
+extern void sp_record_busiest(int cpu);
 
 // enum {
 //     SP_SCHED_EXEC = 0,
@@ -1468,6 +1469,8 @@ struct sched_class {
 	bool (*yield_to_task) (struct rq *rq, struct task_struct *p, bool preempt);
 
 	void (*check_preempt_curr) (struct rq *rq, struct task_struct *p, int flags);
+
+	void (*rebalance_domains)  (struct rq *rq, enum cpu_idle_type idle, int opt);
 
 	/*
 	 * It is the responsibility of the pick_next_task() method that will
