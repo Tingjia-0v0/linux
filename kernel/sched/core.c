@@ -1169,7 +1169,7 @@ void trigger_rebalance_after_changing(const struct cpumask * new_mask)
 	int cpu;
 	struct rq *rq;
 	int i = 0;
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 1; i++) {
 		for_each_possible_cpu(cpu) {
 			rq = cpu_rq(cpu);
 			enum cpu_idle_type idle = rq->idle_balance ?

@@ -547,6 +547,14 @@ static inline void list_splice_tail_init(struct list_head *list,
  * @head:	the head for your list.
  * @member:	the name of the list_head within the struct.
  */
+
+// list_for_each_entry_safe(cfs_rq, pos, &rq->leaf_cfs_rq_list,	\
+// 				 leaf_cfs_rq_list)
+// #define list_first_entry(ptr, type, member) \
+// 	list_entry((ptr)->next, type, member)
+
+// #define list_entry(ptr, type, member) \
+// 	container_of(ptr, type, member)
 #define list_for_each_entry_safe(pos, n, head, member)			\
 	for (pos = list_first_entry(head, typeof(*pos), member),	\
 		n = list_next_entry(pos, member);			\

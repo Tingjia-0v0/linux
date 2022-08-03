@@ -46,7 +46,7 @@
 #endif
 
 extern void sp_set_nr_running(int *nr_running_p, int nr_running, int dst_cpu);
-extern void sp_record_load_change(unsigned long load, int cpu);
+extern void sp_record_load_change(int flag, unsigned long load, int cpu);
 extern void sp_record_load_balance(int src_cpu, int dst_cpu, int ld_moved);
 extern void sp_record_cpuallowed_change(int cpu);
 extern void sp_record_rebalance(int cpu, int level, int r);
@@ -58,7 +58,10 @@ extern void sp_record_sd_interval(int cpu, int level, unsigned int interval);
 extern void sp_record_cgroup_cpumask(int cpu);
 extern void sp_record_start_migration(int src_cpu, int dst_cpu);
 extern void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved);
-extern void sp_record_busiest(int cpu);
+extern void sp_record_busiest(int flag, int cpu);
+extern void sp_record_detach_status(int src_cpu, unsigned int loop, unsigned int loop_max, unsigned int loop_break, long imbalance);
+extern void sp_record_actual_detach(void);
+extern void sp_record_detach_load(unsigned long load);
 
 // enum {
 //     SP_SCHED_EXEC = 0,

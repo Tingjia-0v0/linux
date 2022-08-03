@@ -54,7 +54,7 @@ EXPORT_SYMBOL(sp_cpu_rq);
 /* Hook type definitions                                                      */
 /******************************************************************************/
 typedef void (*set_nr_running_t)(int *, int, int);
-typedef void (*record_load_change_t)(unsigned long, int);
+typedef void (*record_load_change_t)(int, unsigned long, int);
 typedef void (*record_load_balance_t)(int, int, int);
 typedef void (*record_cpuallowed_change_t)(int);
 typedef void (*record_rebalance_t)(int, int, int);
@@ -66,7 +66,10 @@ typedef void (*record_sd_interval_t)(int, int, unsigned int);
 typedef void (*record_cgroup_cpumask_t)(int);
 typedef void (*record_start_migration_t)(int, int);
 typedef void (*record_end_migration_t)(int, int, int);
-typedef void (*record_busiest_t)(int);
+typedef void (*record_busiest_t)(int, int);
+typedef void (*record_detach_status_t)(int, unsigned int, unsigned int, unsigned int, long);
+typedef void (*record_actual_detach_t)(void);
+typedef void (*record_detach_load_t)(unsigned long);
 
 /******************************************************************************/
 /* Hooks                                                                      */
@@ -98,6 +101,12 @@ __read_mostly volatile record_end_migration_t
 			  sp_module_record_end_migration = NULL;
 __read_mostly volatile record_busiest_t
 			  sp_module_record_busiest = NULL;
+__read_mostly volatile record_detach_status_t
+			  sp_module_record_detach_status = NULL;
+__read_mostly volatile record_actual_detach_t
+			  sp_module_record_actual_detach = NULL;
+__read_mostly volatile record_detach_load_t
+			  sp_module_record_detach_load = NULL;
 
 /******************************************************************************/
 /* Default hook implementations                                               */
@@ -110,10 +119,10 @@ void sp_set_nr_running(int *nr_running_p, int new_nr_running, int dst_cpu)
         *nr_running_p = new_nr_running;
 }
 
-void sp_record_load_change(unsigned long load, int cpu)
+void sp_record_load_change(int flag, unsigned long load, int cpu)
 {
     if (sp_module_record_load_change)
-        (*sp_module_record_load_change)(load, cpu);
+        (*sp_module_record_load_change)(flag, load, cpu);
 }
 
 void sp_record_load_balance(int src_cpu, int dst_cpu, int ld_moved)
@@ -182,10 +191,29 @@ void sp_record_end_migration(int src_cpu, int dst_cpu, int ld_moved)
 		(*sp_module_record_end_migration)(src_cpu, dst_cpu, ld_moved);
 }
 
-void sp_record_busiest(int cpu)
+// flag: busiest queue: 0, busiest group 1
+void sp_record_busiest(int flag, int cpu)
 {
 	if (sp_module_record_busiest)
-		(*sp_module_record_busiest)(cpu);
+		(*sp_module_record_busiest)(flag, cpu);
+}
+
+void sp_record_detach_status(int src_cpu, unsigned int loop, unsigned int loop_max, unsigned int loop_break, long imbalance)
+{
+	if (sp_module_record_detach_status)
+		(*sp_module_record_detach_status)(src_cpu, loop, loop_max, loop_break, imbalance);
+}
+
+void sp_record_actual_detach(void)
+{
+	if (sp_module_record_actual_detach)
+		(*sp_module_record_actual_detach)();
+}
+
+void sp_record_detach_load(unsigned long load)
+{
+	if (sp_module_record_detach_load)
+		(*sp_module_record_detach_load)(load);
 }
 
 /******************************************************************************/
@@ -275,6 +303,24 @@ void set_sp_module_record_busiest
 	sp_module_record_busiest = __sp_module_record_busiest;
 }
 
+void set_sp_module_record_detach_status
+	(record_detach_status_t __sp_module_record_detach_status)
+{
+	sp_module_record_detach_status = __sp_module_record_detach_status;
+}
+
+void set_sp_module_record_actual_detach
+	(record_actual_detach_t __sp_module_record_actual_detach)
+{
+	sp_module_record_actual_detach = __sp_module_record_actual_detach;
+}
+
+void set_sp_module_record_detach_load
+	(record_detach_load_t __sp_module_record_detach_load)
+{
+	sp_module_record_detach_load = __sp_module_record_detach_load;
+}
+
 /******************************************************************************/
 /* Symbols                                                                    */
 /******************************************************************************/
@@ -292,6 +338,9 @@ EXPORT_SYMBOL(set_sp_module_record_cgroup_cpumask);
 EXPORT_SYMBOL(set_sp_module_record_start_migration);
 EXPORT_SYMBOL(set_sp_module_record_end_migration);
 EXPORT_SYMBOL(set_sp_module_record_busiest);
+EXPORT_SYMBOL(set_sp_module_record_detach_status);
+EXPORT_SYMBOL(set_sp_module_record_actual_detach);
+EXPORT_SYMBOL(set_sp_module_record_detach_load);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -554,6 +603,7 @@ static inline struct cfs_rq *group_cfs_rq(struct sched_entity *grp)
 	return grp->my_q;
 }
 
+// leaf_cfs_rq_list: a list in which child must appear before parents.
 static inline void list_add_leaf_cfs_rq(struct cfs_rq *cfs_rq)
 {
 	if (!cfs_rq->on_list) {
@@ -2914,7 +2964,7 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (!parent_entity(se))
 	{
 		update_load_add(&rq_of(cfs_rq)->load, se->load.weight);
-		sp_record_load_change(rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
+		sp_record_load_change(0, rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
 	}
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
@@ -2934,7 +2984,7 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (!parent_entity(se))
 	{
 		update_load_sub(&rq_of(cfs_rq)->load, se->load.weight);
-		sp_record_load_change(rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
+		sp_record_load_change(0, rq_of(cfs_rq)->load.weight, rq_of(cfs_rq)->cpu);
 	}
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
@@ -2999,20 +3049,23 @@ static inline long se_runnable(struct sched_entity *se)
 static inline void
 enqueue_runnable_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	// record avg.runnable_load_avg
 	cfs_rq->runnable_weight += se->runnable_weight;
 
 	cfs_rq->avg.runnable_load_avg += se->avg.runnable_load_avg;
 	cfs_rq->avg.runnable_load_sum += se_runnable(se) * se->avg.runnable_load_sum;
+	sp_record_load_change(1, cfs_rq->avg.runnable_load_avg, rq_of(cfs_rq)->cpu);
 }
 
 static inline void
 dequeue_runnable_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	cfs_rq->runnable_weight -= se->runnable_weight;
-
+	// record avg.runnable_load_avg
 	sub_positive(&cfs_rq->avg.runnable_load_avg, se->avg.runnable_load_avg);
 	sub_positive(&cfs_rq->avg.runnable_load_sum,
 		     se_runnable(se) * se->avg.runnable_load_sum);
+	sp_record_load_change(1, cfs_rq->avg.runnable_load_avg, rq_of(cfs_rq)->cpu);
 }
 
 static inline void
@@ -3820,8 +3873,10 @@ update_tg_cfs_runnable(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cf
 	se->avg.runnable_load_avg = runnable_load_avg;
 
 	if (se->on_rq) {
+		// record the runnable_load_avg
 		add_positive(&cfs_rq->avg.runnable_load_avg, delta_avg);
 		add_positive(&cfs_rq->avg.runnable_load_sum, delta_sum);
+		sp_record_load_change(1, cfs_rq->avg.runnable_load_avg, rq_of(cfs_rq)->cpu);
 	}
 }
 
@@ -4265,6 +4320,7 @@ static inline void check_schedstat_required(void)
 static void
 enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
+	// if the status is migrated or the status is not wakeup
 	bool renorm = !(flags & ENQUEUE_WAKEUP) || (flags & ENQUEUE_MIGRATED);
 	bool curr = cfs_rq->curr == se;
 
@@ -4308,6 +4364,8 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (!curr)
 		__enqueue_entity(cfs_rq, se);
 	se->on_rq = 1;
+
+	// The first time this cfs joining this cpu
 
 	if (cfs_rq->nr_running == 1) {
 		list_add_leaf_cfs_rq(cfs_rq);
@@ -7456,7 +7514,7 @@ static const unsigned int sched_nr_migrate_break = 32;
  *
  * Returns number of detached tasks if successful and 0 otherwise.
  */
-static int detach_tasks(struct lb_env *env)
+static int detach_tasks(struct lb_env *env, int opt)
 {
 	struct list_head *tasks = &env->src_rq->cfs_tasks;
 	struct task_struct *p;
@@ -7479,6 +7537,8 @@ static int detach_tasks(struct lb_env *env)
 		p = list_last_entry(tasks, struct task_struct, se.group_node);
 
 		env->loop++;
+		sp_record_detach_status(env->src_rq->cpu, env->loop, env->loop_max, env->loop_break, env->imbalance);
+		// record loop and loop_max and loop_break
 		/* We've more or less seen every task there is, call it quits */
 		if (env->loop > env->loop_max)
 			break;
@@ -7489,18 +7549,26 @@ static int detach_tasks(struct lb_env *env)
 			env->flags |= LBF_NEED_BREAK;
 			break;
 		}
-
+		// record can_migrate_task?
 		if (!can_migrate_task(p, env))
 			goto next;
 
+		// record load
 		load = task_h_load(p);
+
+		sp_record_detach_load(load);
 
 		if (sched_feat(LB_MIN) && load < 16 && !env->sd->nr_balance_failed)
 			goto next;
 
-		if ((load / 2) > env->imbalance)
-			goto next;
+		// load / a number > env->imbalance
 
+		// if ((load / 2) > env->imbalance) {
+		// 	// if (env->imbalance - load <= 0) break;
+		// 	goto next;
+		// }
+			
+		sp_record_actual_detach();
 		detach_task(p, env);
 		list_add(&p->se.group_node, &env->tasks);
 
@@ -8117,17 +8185,26 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 {
 	struct sg_lb_stats *busiest = &sds->busiest_stat;
 
-	if (sgs->group_type > busiest->group_type)
+	if (sgs->group_type > busiest->group_type) {
+		sp_record_busiest(3, 0);
 		return true;
+	}
 
-	if (sgs->group_type < busiest->group_type)
+	if (sgs->group_type < busiest->group_type) {
+		sp_record_busiest(4, 0);
 		return false;
+	}
 
-	if (sgs->avg_load <= busiest->avg_load)
+	if (sgs->avg_load <= busiest->avg_load) {
+		sp_record_busiest(5, 0);
 		return false;
+	}
+		
 
-	if (!(env->sd->flags & SD_ASYM_CPUCAPACITY))
+	if (!(env->sd->flags & SD_ASYM_CPUCAPACITY)) {
+		sp_record_busiest(6, 0);
 		goto asym_packing;
+	}
 
 	/*
 	 * Candidate sg has no more than one task per CPU and
@@ -8136,17 +8213,23 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	 * power/energy consequences are not considered.
 	 */
 	if (sgs->sum_nr_running <= sgs->group_weight &&
-	    group_smaller_cpu_capacity(sds->local, sg))
+	    group_smaller_cpu_capacity(sds->local, sg)) {
+		sp_record_busiest(7, 0);
 		return false;
+	}
 
 asym_packing:
 	/* This is the busiest node in its class. */
-	if (!(env->sd->flags & SD_ASYM_PACKING))
+	if (!(env->sd->flags & SD_ASYM_PACKING)) {
+		sp_record_busiest(8, 0);
 		return true;
+	}
 
 	/* No ASYM_PACKING if target cpu is already busy */
-	if (env->idle == CPU_NOT_IDLE)
+	if (env->idle == CPU_NOT_IDLE) {
+		sp_record_busiest(9, 0);
 		return true;
+	}
 	/*
 	 * ASYM_PACKING needs to move all the work to the highest
 	 * prority CPUs in the group, therefore mark all groups
@@ -8154,13 +8237,17 @@ asym_packing:
 	 */
 	if (sgs->sum_nr_running &&
 	    sched_asym_prefer(env->dst_cpu, sg->asym_prefer_cpu)) {
-		if (!sds->busiest)
+		if (!sds->busiest) {
+			sp_record_busiest(10, 0);
 			return true;
+		}
 
 		/* Prefer to move from lowest priority cpu's work */
 		if (sched_asym_prefer(sds->busiest->asym_prefer_cpu,
-				      sg->asym_prefer_cpu))
+				      sg->asym_prefer_cpu)) {
+			sp_record_busiest(11, 0);
 			return true;
+		}
 	}
 
 	return false;
@@ -8209,6 +8296,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sg_lb_stats tmp_sgs;
 	int load_idx, prefer_sibling = 0;
 	bool overload = false;
+	int i = 0;
 
 	if (child && child->flags & SD_PREFER_SIBLING)
 		prefer_sibling = 1;
@@ -8231,7 +8319,10 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 
 		update_sg_lb_stats(env, sg, load_idx, local_group, sgs,
 						&overload);
-
+		for_each_cpu_and(i, sched_group_span(sg), env->cpus) {
+			sp_record_busiest(2, i);
+		}
+		// sp_record_sg_status(prefer_sibling, group_has_capacity(env, local), sgs->sum_nr_running, local->sum_nr_running);
 		if (local_group)
 			goto next_group;
 
@@ -8245,9 +8336,25 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 		 * under-utilized (possible with a large weight task outweighs
 		 * the tasks on the system).
 		 */
+		// record prefer_sibling, sds->local, group_has_capacity, and sum_nr_running, sgs/sds->group_type
+		// if (sds->local)
+		// 	sp_record_sg_status(prefer_sibling, group_has_capacity(env, local), sgs->sum_nr_running, local->sum_nr_running);
+		if (prefer_sibling)  {
+			sp_record_busiest(20, 0);
+			if (sds->local) { 
+				sp_record_busiest(21, 0); 
+				if (group_has_capacity(env, local)) {
+					sp_record_busiest(22, 0);
+					if (sgs->sum_nr_running > local->sum_nr_running + 1)
+						sp_record_busiest(23, 0);
+				}
+			}
+		}
+
 		if (prefer_sibling && sds->local &&
 		    group_has_capacity(env, local) &&
 		    (sgs->sum_nr_running > local->sum_nr_running + 1)) {
+			
 			sgs->group_no_capacity = 1;
 			sgs->group_type = group_classify(sg, sgs);
 		}
@@ -8500,8 +8607,11 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 		return sds.busiest;
 
 	/* There is no busy sibling group to pull tasks from */
-	if (!sds.busiest || busiest->sum_nr_running == 0)
+	if (!sds.busiest || busiest->sum_nr_running == 0) {
+		sp_record_busiest(13, 0);
 		goto out_balanced;
+	}
+		
 
 	/* XXX broken for overlapping NUMA groups */
 	sds.avg_load = (SCHED_CAPACITY_SCALE * sds.total_load)
@@ -8519,23 +8629,39 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	 * When dst_cpu is idle, prevent SMP nice and/or asymmetric group
 	 * capacities from resulting in underutilization due to avg_load.
 	 */
+
+	// record enb->idle
+	if (env->idle != CPU_NOT_IDLE) {
+		sp_record_busiest(24, 0);
+		if (group_has_capacity(env, local)) {
+			sp_record_busiest(25, 0);
+			if (busiest->group_no_capacity)
+				sp_record_busiest(26, 0);
+		}
+	}
 	if (env->idle != CPU_NOT_IDLE && group_has_capacity(env, local) &&
 	    busiest->group_no_capacity)
 		goto force_balance;
-
+	// if (local->sum_nr_running == 0) goto force_balance;
 	/*
 	 * If the local group is busier than the selected busiest group
 	 * don't try and pull any tasks.
 	 */
-	if (local->avg_load >= busiest->avg_load)
+	if (local->avg_load >= busiest->avg_load) {
+		sp_record_busiest(14, 0);
 		goto out_balanced;
+	}
+		
 
 	/*
 	 * Don't pull any tasks if this group is already above the domain
 	 * average load.
 	 */
-	if (local->avg_load >= sds.avg_load)
+	if (local->avg_load >= sds.avg_load) {
+		sp_record_busiest(15, 0);
 		goto out_balanced;
+	}
+		
 
 	if (env->idle == CPU_IDLE) {
 		/*
@@ -8546,20 +8672,28 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 		 * might end up to just move the imbalance on another group
 		 */
 		if ((busiest->group_type != group_overloaded) &&
-				(local->idle_cpus <= (busiest->idle_cpus + 1)))
+				(local->idle_cpus < (busiest->idle_cpus + 1))) {
+			sp_record_busiest(16, 0);
+			sp_record_busiest(local->idle_cpus, 0);
+			sp_record_busiest(busiest->idle_cpus, 0);
 			goto out_balanced;
+		}
 	} else {
 		/*
 		 * In the CPU_NEWLY_IDLE, CPU_NOT_IDLE cases, use
 		 * imbalance_pct to be conservative.
 		 */
+		// imbalance_pct 110 / 117
 		if (100 * busiest->avg_load <=
-				env->sd->imbalance_pct * local->avg_load)
+				env->sd->imbalance_pct * local->avg_load) {
+			sp_record_busiest(17, 0);
 			goto out_balanced;
+		}
 	}
 
 force_balance:
 	/* Looks like there is an imbalance. Compute it */
+	// update env->imbalance record it here
 	calculate_imbalance(env, &sds);
 	return sds.busiest;
 
@@ -8762,13 +8896,17 @@ redo:
 		schedstat_inc(sd->lb_nobusyg[idle]);
 		goto out_balanced;
 	}
-
+	// record busiest group
+	int i;
+	for_each_cpu_and(i, sched_group_span(group), env.cpus) {
+		sp_record_busiest(1, i);
+	}
 	busiest = find_busiest_queue(&env, group);
 	if (!busiest) {
 		schedstat_inc(sd->lb_nobusyq[idle]);
 		goto out_balanced;
 	}
-	sp_record_busiest(busiest->cpu);
+	sp_record_busiest(0, busiest->cpu);
 	BUG_ON(busiest == env.dst_rq);
 
 	schedstat_add(sd->lb_imbalance[idle], env.imbalance);
@@ -8777,6 +8915,8 @@ redo:
 	env.src_rq = busiest;
 
 	ld_moved = 0;
+
+	// record nr_running of busiest queue
 	if (busiest->nr_running > 1) {
 		/*
 		 * Attempt to move tasks. If find_busiest_group has found
@@ -8797,7 +8937,7 @@ more_balance:
 		 * cur_ld_moved - load moved in current iteration
 		 * ld_moved     - cumulative load moved across iterations
 		 */
-		cur_ld_moved = detach_tasks(&env);
+		cur_ld_moved = detach_tasks(&env, opt);
 
 		// record busiest cpu and dst cpu
 		// sp_record_load_balance(busiest->cpu, this_cpu, cur_ld_moved);
@@ -9415,6 +9555,8 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle, int opt)
 		if (!(sd->flags & SD_LOAD_BALANCE))
 			continue;
 
+		// record need_decay variable
+		// combine with actual workloads to analysis the rebalance loads
 		/*
 		 * Stop the load balance at this level. There is another
 		 * CPU in our sched group which is doing load balancing more
