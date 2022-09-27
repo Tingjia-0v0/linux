@@ -39,6 +39,68 @@
 
 #include "sched.h"
 
+#include <linux/module.h>
+
+int * sp_parse_cpumask(cpumask_t * m, int n_cpu) {
+	static int cpus_in_mask[64];
+	int i;
+	int j = 0;
+	cpus_in_mask[j++] = n_cpu;
+	for_each_cpu(i, m) {
+		cpus_in_mask[j++] = i;
+	}
+	for(;j < 64; j++) cpus_in_mask[j] = -1;
+    return cpus_in_mask;
+}
+
+EXPORT_SYMBOL(sp_parse_cpumask);
+
+/******************************************************************************/
+/* Hook type definitions                                                      */
+/******************************************************************************/
+/* record some parameters for try_wakeup_new_task function:
+ * cur_cpu, p->on_rq, and parent's pid
+ */
+typedef void (*record_wakeup_paras_t)(unsigned int, int, int);
+typedef void (*record_cpus_allowed_t)(cpumask_t *, int);
+
+/******************************************************************************/
+/* Hooks                                                    */
+/******************************************************************************/
+__read_mostly volatile record_wakeup_paras_t sp_module_record_wakeup_paras = NULL;
+__read_mostly volatile record_cpus_allowed_t sp_module_record_cpus_allowed = NULL;
+
+/******************************************************************************/
+/* Default hook implementations                                               */
+/******************************************************************************/
+void sp_record_wakeup_paras(unsigned int cur_cpu, int on_rq, int parent_pid)
+{
+    if (sp_module_record_wakeup_paras)
+        (*sp_module_record_wakeup_paras)(cur_cpu, on_rq, parent_pid);
+}
+void sp_record_cpus_allowed(cpumask_t * m, int n_cpu){
+	if (sp_module_record_cpus_allowed)
+		(*sp_module_record_cpus_allowed)(m, n_cpu);
+}
+
+/******************************************************************************/
+/* Hook setters                                                               */
+/******************************************************************************/
+void set_sp_module_record_wakeup_paras(record_wakeup_paras_t __sp_module_record_wakeup_paras)
+{
+    sp_module_record_wakeup_paras = __sp_module_record_wakeup_paras;
+}
+void set_sp_module_record_cpus_allowed(record_cpus_allowed_t __sp_module_record_cpus_allowed)
+{
+	sp_module_record_cpus_allowed = __sp_module_record_cpus_allowed;
+}
+
+/******************************************************************************/
+/* Symbols                                                                    */
+/******************************************************************************/
+EXPORT_SYMBOL(set_sp_module_record_wakeup_paras);
+EXPORT_SYMBOL(set_sp_module_record_cpus_allowed);
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *

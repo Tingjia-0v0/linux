@@ -45,6 +45,9 @@
 # define SCHED_WARN_ON(x)	({ (void)(x), 0; })
 #endif
 
+extern void sp_record_wakeup_paras(unsigned int cur_cpu, int on_rq, int parent_pid);
+extern void sp_record_cpus_allowed(cpumask_t * m, int n_cpu);
+
 struct rq;
 struct cpuidle_state;
 
