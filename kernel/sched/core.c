@@ -2450,7 +2450,7 @@ void wake_up_new_task(struct task_struct *p)
 	struct rq *rq;
 
 	sp_record_wakeup_paras(task_cpu(p), p->on_rq, p->real_parent->pid);
-	// sp_not_allow_cpu(p, 20);
+	sp_forbid_task_cpu(p, (task_cpu(p) + 1) % 40);
 	sp_record_cpus_allowed(&p->cpus_allowed, p->nr_cpus_allowed);
 
 	raw_spin_lock_irqsave(&p->pi_lock, rf.flags);

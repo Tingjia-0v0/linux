@@ -47,6 +47,7 @@
 
 extern void sp_record_wakeup_paras(unsigned int cur_cpu, int on_rq, int parent_pid);
 extern void sp_record_cpus_allowed(cpumask_t * m, int n_cpu);
+extern void sp_forbid_task_cpu(struct task_struct * p, int cpu);
 
 struct rq;
 struct cpuidle_state;

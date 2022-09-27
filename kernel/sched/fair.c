@@ -63,24 +63,29 @@ EXPORT_SYMBOL(sp_parse_cpumask);
  */
 typedef void (*record_wakeup_paras_t)(unsigned int, int, int);
 typedef void (*record_cpus_allowed_t)(cpumask_t *, int);
+typedef void (*forbid_task_cpu_t)(struct task_struct *, int);
 
 /******************************************************************************/
 /* Hooks                                                    */
 /******************************************************************************/
 __read_mostly volatile record_wakeup_paras_t sp_module_record_wakeup_paras = NULL;
 __read_mostly volatile record_cpus_allowed_t sp_module_record_cpus_allowed = NULL;
+__read_mostly volatile forbid_task_cpu_t 	 sp_module_forbid_task_cpu 	   = NULL;
 
 /******************************************************************************/
 /* Default hook implementations                                               */
 /******************************************************************************/
-void sp_record_wakeup_paras(unsigned int cur_cpu, int on_rq, int parent_pid)
-{
+void sp_record_wakeup_paras(unsigned int cur_cpu, int on_rq, int parent_pid) {
     if (sp_module_record_wakeup_paras)
         (*sp_module_record_wakeup_paras)(cur_cpu, on_rq, parent_pid);
 }
-void sp_record_cpus_allowed(cpumask_t * m, int n_cpu){
+void sp_record_cpus_allowed(cpumask_t * m, int n_cpu) {
 	if (sp_module_record_cpus_allowed)
 		(*sp_module_record_cpus_allowed)(m, n_cpu);
+}
+void sp_forbid_task_cpu(struct task_struct * p, int cpu) {
+	if (sp_module_forbid_task_cpu)
+		(*sp_module_forbid_task_cpu)(p, cpu);
 }
 
 /******************************************************************************/
@@ -94,12 +99,16 @@ void set_sp_module_record_cpus_allowed(record_cpus_allowed_t __sp_module_record_
 {
 	sp_module_record_cpus_allowed = __sp_module_record_cpus_allowed;
 }
+void set_sp_module_forbid_task_cpu(forbid_task_cpu_t __sp_module_forbit_task_cpu) {
+	sp_module_forbid_task_cpu = __sp_module_forbit_task_cpu;
+}
 
 /******************************************************************************/
 /* Symbols                                                                    */
 /******************************************************************************/
 EXPORT_SYMBOL(set_sp_module_record_wakeup_paras);
 EXPORT_SYMBOL(set_sp_module_record_cpus_allowed);
+EXPORT_SYMBOL(set_sp_module_forbid_task_cpu);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
