@@ -55,6 +55,64 @@
 #include "stats.h"
 #include "autogroup.h"
 
+#include <linux/module.h>
+
+typedef void (* record_rq_size_t)(int, int);
+typedef void (* sp_set_python_process_t)(int*, int, int, int, int);
+typedef void (* sp_record_python_process_t)(int);
+typedef void (* sp_record_push_task_t)(int);
+typedef void (* sp_record_move_task_t)(int, int, int);
+
+__read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
+__read_mostly volatile sp_set_python_process_t sp_module_set_python_process = NULL;
+__read_mostly volatile sp_record_python_process_t sp_module_record_python_process = NULL;
+__read_mostly volatile sp_record_push_task_t sp_module_record_push_task = NULL;
+__read_mostly volatile sp_record_move_task_t sp_module_record_move_task = NULL;
+
+void record_rq_size(int dst_cpu, int nr_running) {
+	if (module_record_rq_size)
+		(*module_record_rq_size)(dst_cpu, nr_running);
+}
+void sp_set_python_process(int * python_process, int cur_pid, int dest_cpu,
+						   int task_running, int migration_disabled) {
+	if (sp_module_set_python_process)
+		(*sp_module_set_python_process)(python_process, cur_pid, dest_cpu, 
+										task_running, migration_disabled);
+}
+void sp_record_python_process(int python_process) {
+	if (sp_module_record_python_process)
+		(*sp_module_record_python_process)(python_process);
+}
+void sp_record_push_task(int cur_pid) {
+	if (sp_module_record_push_task)
+		(*sp_module_record_push_task)(cur_pid);
+}
+void sp_record_move_task(int src_cpu, int dest_cpu, int cur_pid) {
+	if (sp_module_record_move_task)
+		(*sp_module_record_move_task)(src_cpu, dest_cpu, cur_pid);
+}
+
+void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
+	module_record_rq_size = __module_record_rq_size;
+}
+void set_sp_module_set_python_process(sp_set_python_process_t __sp_module_set_python_process) {
+	sp_module_set_python_process = __sp_module_set_python_process;
+}
+void set_sp_module_record_python_process(sp_record_python_process_t __sp_module_record_python_process) {
+	sp_module_record_python_process = __sp_module_record_python_process;
+}
+void set_sp_module_record_push_task(sp_record_push_task_t __sp_module_record_push_task) {
+	sp_module_record_push_task = __sp_module_record_push_task;
+}
+void set_sp_module_record_move_task(sp_record_move_task_t __sp_module_record_move_task) {
+	sp_module_record_move_task = __sp_module_record_move_task;
+}
+
+EXPORT_SYMBOL(set_module_record_rq_size);
+EXPORT_SYMBOL(set_sp_module_set_python_process);
+EXPORT_SYMBOL(set_sp_module_record_python_process);
+EXPORT_SYMBOL(set_sp_module_record_push_task);
+EXPORT_SYMBOL(set_sp_module_record_move_task);
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *

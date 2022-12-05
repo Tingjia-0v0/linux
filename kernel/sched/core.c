@@ -2325,6 +2325,8 @@ static inline bool is_cpu_allowed(struct task_struct *p, int cpu)
 static struct rq *move_queued_task(struct rq *rq, struct rq_flags *rf,
 				   struct task_struct *p, int new_cpu)
 {
+	sp_record_move_task(rq->cpu, new_cpu, p->pid);
+
 	lockdep_assert_rq_held(rq);
 
 	deactivate_task(rq, p, DEQUEUE_NOCLOCK);
@@ -2707,11 +2709,18 @@ static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flag
 	bool stop_pending, complete = false;
 
 	/* Can the task run on the task's current CPU? If so, we're done */
+	int python_process = -1; 
+	sp_set_python_process(&python_process, p->pid, dest_cpu, 
+						  task_running(rq, p), is_migration_disabled(p));
+	sp_record_python_process(python_process);
+	if (p->real_parent->pid == python_process && task_cpu(p) != dest_cpu) goto migrate;
+	
 	if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask)) {
 		struct task_struct *push_task = NULL;
 
 		if ((flags & SCA_MIGRATE_ENABLE) &&
 		    (p->migration_flags & MDF_PUSH) && !rq->push_busy) {
+			sp_record_push_task(p->pid);
 			rq->push_busy = true;
 			push_task = get_task_struct(p);
 		}
@@ -2738,7 +2747,7 @@ static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flag
 
 		return 0;
 	}
-
+migrate:
 	if (!(flags & SCA_MIGRATE_ENABLE)) {
 		/* serialized by p->pi_lock */
 		if (!p->migration_pending) {

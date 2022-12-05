@@ -103,6 +103,12 @@ struct cpuidle_state;
 #define TASK_ON_RQ_QUEUED	1
 #define TASK_ON_RQ_MIGRATING	2
 
+extern void record_rq_size(int dst_cpu, int nr_running);
+extern void sp_set_python_process(int * python_process, int cur_pid, int dest_cpu,
+								  int task_running, int migration_disabled);
+extern void sp_record_python_process(int python_process);
+extern void sp_record_push_task(int cur_pid);
+extern void sp_record_move_task(int src_cpu, int dest_cpu, int cur_pid);
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
@@ -2364,6 +2370,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	unsigned prev_nr = rq->nr_running;
 
 	rq->nr_running = prev_nr + count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
+
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
 	}
@@ -2381,6 +2389,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
 	rq->nr_running -= count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
+
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, -count);
 	}
