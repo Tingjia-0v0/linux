@@ -1011,6 +1011,7 @@ void wake_up_q(struct wake_q_head *head)
 		/* Task can safely be re-inserted now: */
 		node = node->next;
 		task->wake_q.next = NULL;
+		sp_record_wakeup_task(current->pid, task->pid);
 
 		/*
 		 * wake_up_process() executes a full barrier, which pairs with
@@ -2094,6 +2095,7 @@ static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 
 void activate_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	sp_record_activate_task(p->pid, cpu_of(rq), 0);
 	enqueue_task(rq, p, flags);
 
 	p->on_rq = TASK_ON_RQ_QUEUED;
@@ -2101,6 +2103,7 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 
 void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	sp_record_activate_task(p->pid, cpu_of(rq), 1);
 	p->on_rq = (flags & DEQUEUE_SLEEP) ? 0 : TASK_ON_RQ_MIGRATING;
 
 	dequeue_task(rq, p, flags);
@@ -6436,6 +6439,8 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 #endif
 
 	if (likely(prev != next)) {
+		sp_record_context_switch(prev->pid, prev->tgid, 
+							  next->pid, next->tgid, cpu_of(rq));
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see
@@ -8207,6 +8212,8 @@ static void do_sched_yield(void)
 	struct rq *rq;
 
 	rq = this_rq_lock_irq(&rf);
+
+	sp_record_sched_yield(cpu_of(rq), current->pid);
 
 	schedstat_inc(rq->yld_count);
 	current->sched_class->yield_task(rq);

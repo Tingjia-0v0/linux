@@ -3,8 +3,35 @@
 #include <linux/sched/task.h>
 #include <linux/sched/signal.h>
 #include <linux/freezer.h>
+#include <linux/module.h>
 
 #include "futex.h"
+
+typedef void (* futex_record_start_wake_t)(unsigned int, int);
+typedef void (* futex_record_start_wait_t)(unsigned int, int);
+__read_mostly volatile futex_record_start_wake_t futex_module_record_start_wake = NULL;
+__read_mostly volatile futex_record_start_wait_t futex_module_record_start_wait = NULL;
+
+void futex_record_start_wake(unsigned int uaddr, int cur_pid) {
+	if(futex_module_record_start_wake)
+		(* futex_module_record_start_wake)(uaddr, cur_pid);
+}
+
+void futex_record_start_wait(unsigned int uaddr, int cur_pid) {
+	if(futex_module_record_start_wait)
+		(* futex_module_record_start_wait)(uaddr, cur_pid);
+}
+
+void set_futex_module_record_start_wake(futex_record_start_wake_t __futex_module_record_start_wake) {
+	futex_module_record_start_wake = __futex_module_record_start_wake;
+}
+
+void set_futex_module_record_start_wait(futex_record_start_wait_t __futex_module_record_start_wait) {
+	futex_module_record_start_wait = __futex_module_record_start_wait;
+}
+
+EXPORT_SYMBOL(set_futex_module_record_start_wake);
+EXPORT_SYMBOL(set_futex_module_record_start_wait);
 
 /*
  * READ this before attempting to hack on futexes!
@@ -142,6 +169,7 @@ void futex_wake_mark(struct wake_q_head *wake_q, struct futex_q *q)
  */
 int futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 {
+	futex_record_start_wake(uaddr, current->pid);
 	struct futex_hash_bucket *hb;
 	struct futex_q *this, *next;
 	union futex_key key = FUTEX_KEY_INIT;
@@ -644,6 +672,7 @@ int futex_wait(u32 __user *uaddr, unsigned int flags, u32 val, ktime_t *abs_time
 	to = futex_setup_timer(abs_time, &timeout, flags,
 			       current->timer_slack_ns);
 retry:
+	futex_record_start_wait(uaddr, current->pid);
 	/*
 	 * Prepare to wait on uaddr. On success, it holds hb->lock and q
 	 * is initialized.

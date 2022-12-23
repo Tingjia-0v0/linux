@@ -62,12 +62,20 @@ typedef void (* sp_set_python_process_t)(int*, int, int, int, int);
 typedef void (* sp_record_python_process_t)(int);
 typedef void (* sp_record_push_task_t)(int);
 typedef void (* sp_record_move_task_t)(int, int, int);
+typedef void (* sp_record_wakeup_task_t)(int, int);
+typedef void (* sp_record_activate_task_t)(int, int, int);
+typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
+typedef void (* sp_record_sched_yield_t)(int, int);
 
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
 __read_mostly volatile sp_set_python_process_t sp_module_set_python_process = NULL;
 __read_mostly volatile sp_record_python_process_t sp_module_record_python_process = NULL;
 __read_mostly volatile sp_record_push_task_t sp_module_record_push_task = NULL;
 __read_mostly volatile sp_record_move_task_t sp_module_record_move_task = NULL;
+__read_mostly volatile sp_record_wakeup_task_t sp_module_record_wakeup_task = NULL;
+__read_mostly volatile sp_record_activate_task_t sp_module_record_activate_task = NULL;
+__read_mostly volatile sp_record_context_switch_t sp_module_record_context_switch = NULL;
+__read_mostly volatile sp_record_sched_yield_t sp_module_record_sched_yield = NULL;
 
 void record_rq_size(int dst_cpu, int nr_running) {
 	if (module_record_rq_size)
@@ -91,6 +99,23 @@ void sp_record_move_task(int src_cpu, int dest_cpu, int cur_pid) {
 	if (sp_module_record_move_task)
 		(*sp_module_record_move_task)(src_cpu, dest_cpu, cur_pid);
 }
+void sp_record_wakeup_task(int waker_pid, int target_pid) {
+	if (sp_module_record_wakeup_task)
+		(*sp_module_record_wakeup_task)(waker_pid, target_pid);
+}
+void sp_record_activate_task(int pid, int cpu, int flag) {
+	if (sp_module_record_activate_task)
+		(*sp_module_record_activate_task)(pid, cpu, flag);
+}
+void sp_record_context_switch(int prev_pid, int prev_tgid, 
+							  int next_pid, int next_tgid, int cpu) {
+	if (sp_module_record_context_switch)
+		(*sp_module_record_context_switch)(prev_pid, prev_tgid, next_pid, next_tgid, cpu);
+}
+void sp_record_sched_yield(int cpu, int cur_pid) {
+	if (sp_module_record_sched_yield)
+		(*sp_module_record_sched_yield)(cpu, cur_pid);
+}
 
 void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
 	module_record_rq_size = __module_record_rq_size;
@@ -107,12 +132,29 @@ void set_sp_module_record_push_task(sp_record_push_task_t __sp_module_record_pus
 void set_sp_module_record_move_task(sp_record_move_task_t __sp_module_record_move_task) {
 	sp_module_record_move_task = __sp_module_record_move_task;
 }
+void set_sp_module_record_wakeup_task(sp_record_wakeup_task_t __sp_module_record_wakeup_task) {
+	sp_module_record_wakeup_task = __sp_module_record_wakeup_task;
+}
+void set_sp_module_record_activate_task(sp_record_activate_task_t __sp_module_record_activate_task) {
+	sp_module_record_activate_task = __sp_module_record_activate_task;
+}
+void set_sp_module_record_context_switch(sp_record_context_switch_t __sp_module_record_context_switch) {
+	sp_module_record_context_switch = __sp_module_record_context_switch;
+}
+void set_sp_module_record_sched_yield(sp_record_sched_yield_t __sp_module_record_sched_yield) {
+	sp_module_record_sched_yield = __sp_module_record_sched_yield;
+}
 
 EXPORT_SYMBOL(set_module_record_rq_size);
 EXPORT_SYMBOL(set_sp_module_set_python_process);
 EXPORT_SYMBOL(set_sp_module_record_python_process);
 EXPORT_SYMBOL(set_sp_module_record_push_task);
 EXPORT_SYMBOL(set_sp_module_record_move_task);
+EXPORT_SYMBOL(set_sp_module_record_wakeup_task);
+EXPORT_SYMBOL(set_sp_module_record_activate_task);
+EXPORT_SYMBOL(set_sp_module_record_context_switch);
+EXPORT_SYMBOL(set_sp_module_record_sched_yield);
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *

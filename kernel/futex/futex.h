@@ -291,4 +291,7 @@ extern int futex_unlock_pi(u32 __user *uaddr, unsigned int flags);
 
 extern int futex_lock_pi(u32 __user *uaddr, unsigned int flags, ktime_t *time, int trylock);
 
+
+extern void futex_record_start_wake(unsigned int uaddr, int cur_pid);
+extern void futex_record_start_wait(unsigned int uaddr, int cur_pid);
 #endif /* _FUTEX_H */

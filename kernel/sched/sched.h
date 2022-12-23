@@ -109,6 +109,12 @@ extern void sp_set_python_process(int * python_process, int cur_pid, int dest_cp
 extern void sp_record_python_process(int python_process);
 extern void sp_record_push_task(int cur_pid);
 extern void sp_record_move_task(int src_cpu, int dest_cpu, int cur_pid);
+extern void sp_record_wakeup_task(int waker_pid, int target_pid);
+extern void sp_record_activate_task(int pid, int cpu, int flag);
+extern void sp_record_context_switch(int prev_pid, int prev_tgid, 
+							  int next_pid, int next_tgid, int cpu);
+extern void sp_record_sched_yield(int cpu, int cur_pid);
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
