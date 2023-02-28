@@ -2423,7 +2423,7 @@ static int migration_cpu_stop(void *data)
 			p->migration_pending = NULL;
 			complete = true;
 
-			if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask))
+			if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask) && system_state < SYSTEM_RUNNING)
 				goto out;
 		}
 
@@ -2454,7 +2454,7 @@ static int migration_cpu_stop(void *data)
 		 * ->pi_lock, so the allowed mask is stable - if it got
 		 * somewhere allowed, we're done.
 		 */
-		if (cpumask_test_cpu(task_cpu(p), p->cpus_ptr)) {
+		if (cpumask_test_cpu(task_cpu(p), p->cpus_ptr) && system_state < SYSTEM_RUNNING) {
 			p->migration_pending = NULL;
 			complete = true;
 			goto out;
@@ -2694,14 +2694,14 @@ void release_user_cpus_ptr(struct task_struct *p)
  * pending affinity completion is preceded by an uninstallation of
  * p->migration_pending done with p->pi_lock held.
  */
-static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flags *rf,
+int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flags *rf,
 			    int dest_cpu, unsigned int flags)
 {
 	struct set_affinity_pending my_pending = { }, *pending = NULL;
 	bool stop_pending, complete = false;
 
 	/* Can the task run on the task's current CPU? If so, we're done */
-	if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask)) {
+	if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask) && system_state < SYSTEM_RUNNING) {
 		struct task_struct *push_task = NULL;
 
 		if ((flags & SCA_MIGRATE_ENABLE) &&
@@ -2816,7 +2816,7 @@ static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flag
 		if (complete)
 			complete_all(&pending->done);
 	}
-
+	// printk(KERN_INFO "sleep bash task %d %d", current->pid, task_cpu(current));
 	wait_for_completion(&pending->done);
 
 	if (refcount_dec_and_test(&pending->refs))
@@ -3079,6 +3079,42 @@ void relax_compatible_cpus_allowed_ptr(struct task_struct *p)
 	kfree(user_mask);
 }
 
+static void update_resv_cpu(struct task_struct *p, int src_cpu, int dest_cpu) {
+	struct task_group * tg = p->sched_task_group;
+
+	if (!cpumask_empty(&tg->resv_cpumask)) {
+		// printk(KERN_INFO "update resv cpu %d %d %d %p", p->pid, src_cpu, dest_cpu, &tg->resv_cpumask);
+		if (p->se.resv_cpu == -1 || !cpumask_test_cpu(p->se.resv_cpu, &tg->resv_cpumask)) {
+			if (cpumask_test_cpu(src_cpu, &tg->resv_cpumask)) 
+				p->se.resv_cpu = src_cpu;
+			else 
+				p->se.resv_cpu = cpumask_any(&tg->resv_cpumask);
+		}
+		// spot core to resv core
+		if (!cpumask_test_cpu(src_cpu, &tg->resv_cpumask)
+			&& cpumask_test_cpu(dest_cpu, &tg->resv_cpumask)) {
+			p->se.resv_cpu = dest_cpu;
+			list_del_init(&p->se.spot_node);
+		} // resv core to spot core
+		else if (cpumask_test_cpu(src_cpu, &tg->resv_cpumask)
+					&& !cpumask_test_cpu(dest_cpu, &tg->resv_cpumask)) {
+			p->se.resv_cpu = src_cpu;
+			list_move(&p->se.spot_node, &cpu_rq(src_cpu)->spot_tasks);
+		} // resv core to resv core
+		else if  (cpumask_test_cpu(src_cpu, &tg->resv_cpumask)
+					&& cpumask_test_cpu(dest_cpu, &tg->resv_cpumask)) {
+			p->se.resv_cpu = dest_cpu;
+			list_del_init(&p->se.spot_node);
+		}
+		else if (!cpumask_test_cpu(src_cpu, &tg->resv_cpumask)
+					&& !cpumask_test_cpu(dest_cpu, &tg->resv_cpumask)) {
+			list_del_init(&p->se.spot_node);
+			list_move(&p->se.spot_node, &cpu_rq(p->se.resv_cpu)->spot_tasks);
+		}
+	}
+	return;
+}
+
 void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 {
 #ifdef CONFIG_SCHED_DEBUG
@@ -3130,6 +3166,8 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 		rseq_migrate(p);
 		perf_event_task_migrate(p);
 	}
+	if (p->sched_class == &fair_sched_class)
+		update_resv_cpu(p, task_cpu(p), new_cpu);
 
 	__set_task_cpu(p, new_cpu);
 }
@@ -4008,6 +4046,7 @@ bool ttwu_state_match(struct task_struct *p, unsigned int state, int *success)
  * accesses to the task state; see try_to_wake_up() and set_current_state().
  */
 
+int bash_pid = -1;
 /**
  * try_to_wake_up - wake up a thread
  * @p: the thread to be awakened
@@ -4180,7 +4219,12 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	 */
 	smp_cond_load_acquire(&p->on_cpu, !VAL);
 
+	
 	cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
+	// if (bash_pid != -1 && p->pid == bash_pid) {
+	// 	cpu = cpumask_last(cpu_online_mask);
+	// }
+
 	if (task_cpu(p) != cpu) {
 		if (p->in_iowait) {
 			delayacct_blkio_end(p);
@@ -4190,7 +4234,11 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		wake_flags |= WF_MIGRATED;
 		psi_ttwu_dequeue(p);
 		set_task_cpu(p, cpu);
+	} else if (p->sched_class == &fair_sched_class 
+				&& (p->se.resv_cpu == -1 || !cpumask_test_cpu(p->se.resv_cpu, &task_group(p)->resv_cpumask))) {
+		update_resv_cpu(p, task_cpu(p), cpu);
 	}
+	
 #else
 	cpu = task_cpu(p);
 #endif /* CONFIG_SMP */
@@ -4336,7 +4384,11 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+	p->se.resv_cpu			= -1;
+	// p->se.collection_active	= 0;
+	// p->se.collection_round		= 0;
 	INIT_LIST_HEAD(&p->se.group_node);
+	INIT_LIST_HEAD(&p->se.spot_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	p->se.cfs_rq			= NULL;
@@ -4657,6 +4709,7 @@ void wake_up_new_task(struct task_struct *p)
 {
 	struct rq_flags rf;
 	struct rq *rq;
+	int cand_cpu;
 
 	raw_spin_lock_irqsave(&p->pi_lock, rf.flags);
 	WRITE_ONCE(p->__state, TASK_RUNNING);
@@ -4671,7 +4724,23 @@ void wake_up_new_task(struct task_struct *p)
 	 */
 	p->recent_used_cpu = task_cpu(p);
 	rseq_migrate(p);
-	__set_task_cpu(p, select_task_rq(p, task_cpu(p), WF_FORK));
+	
+	cand_cpu = select_task_rq(p, task_cpu(p), WF_FORK);
+	
+	if (p->sched_class == &fair_sched_class && !cpumask_empty(&task_group(p)->resv_cpumask) && cpumask_test_cpu(cand_cpu, &task_group(p)->resv_cpumask)) {
+		// printk(KERN_INFO "INFO: fork a task to a resv core %d %d\n", cand_cpu, task_cpu(p->parent));
+		sp_record_parent(p->real_parent->pid, 
+						 p->real_parent->sched_class == &fair_sched_class, 
+						 task_group(p->real_parent)->from_cgroup);
+		__set_task_cpu(p, cand_cpu);
+		p->se.resv_cpu = task_cpu(p);
+	} 
+	else if (p->sched_class == &fair_sched_class && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+		// printk(KERN_INFO "INFO: fork a task to a spot core %d\n", cand_cpu);
+		__set_task_cpu(p, cpumask_any_and_distribute(cpu_online_mask, &task_group(p)->resv_cpumask));
+	} else {
+		__set_task_cpu(p, cand_cpu);
+	}
 #endif
 	rq = __task_rq_lock(p, &rf);
 	update_rq_clock(rq);
@@ -5430,6 +5499,95 @@ static inline u64 cpu_resched_latency(struct rq *rq) { return 0; }
 #endif /* CONFIG_SCHED_DEBUG */
 
 /*
+#define IA32_FIXED_CTR_CTRL 0x38D
+#define IA32_PERF_GLOBAL_CTRL 0x38F
+#define PERF_FIXED_CTR0 0x309
+#define PERF_FIXED_CTR1 0x30A
+#define PERF_FIXED_CTR2 0x30B
+#define PerfEvtSel0 0x186
+#define PerfEvtSel1 0x187
+#define PerfEvtSel2 0x188
+#define PerfEvtSel3 0x189
+#define IA32_PMC0 0xC1
+#define IA32_PMC1 0xC2
+#define IA32_PMC2 0xC3
+#define IA32_PMC3 0xC4
+
+#define FC0 PERF_FIXED_CTR0
+#define FC1 PERF_FIXED_CTR1
+#define FC2 PERF_FIXED_CTR2
+#define FCC IA32_FIXED_CTR_CTRL
+#define GLC IA32_PERF_GLOBAL_CTRL
+#define PCC0 PerfEvtSel0
+#define PCC1 PerfEvtSel1
+#define PCC2 PerfEvtSel2
+#define PCC3 PerfEvtSel3
+#define PC0 IA32_PMC0
+#define PC1 IA32_PMC1
+#define PC2 IA32_PMC2
+#define PC3 IA32_PMC3
+
+static void monitor_processes(const int cpu)
+{
+	struct task_struct *tsk;
+	struct rq *rq;
+	
+	rq = cpu_rq(cpu);
+	tsk = rq->curr;
+	if (tsk->sched_class != &fair_sched_class)
+		return;
+	if (tsk->se.collection_active != 1) {
+		// tsk->temp.inst = native_read_msr(FC0);
+		tsk->se.collection_active = 1;
+		tsk->se.collection_round = 1;
+		native_write_msr(FC0,0,0);
+	    native_write_msr(FC1,0,0);
+		native_write_msr(PCC0,0x004104d2,0);
+        native_write_msr(PCC1,0x004102d2,0);
+        native_write_msr(PCC2,0x004101d3,0);
+		native_write_msr(PCC3,0x004104d3,0);
+        native_write_msr(FCC,819,0);
+        native_write_msr(GLC,15,7);
+	} else {
+		if (tsk->se.collection_round == 1) {
+			native_write_msr(PCC0,0x000104d2,0);
+			native_write_msr(PCC1,0x000102d2,0);
+			native_write_msr(PCC2,0x000101d3,0);
+			native_write_msr(PCC3,0x000104d3,0);
+
+			tsk->se.tmp_instructions = native_read_msr(FC0);
+		    tsk->se.tmp_cycles = native_read_msr(FC1);
+			tsk->se.collection_round = 2;
+			native_write_msr(FC0,0,0);
+			native_write_msr(FC1,0,0);
+			native_write_msr(PCC0,0x004120d3,0);
+			native_write_msr(PCC1,0x004110d3,0);
+			native_write_msr(PCC2,0x004130d1,0);
+			native_write_msr(PCC3,0x014101a3,0);
+			native_write_msr(FCC,819,0);
+			native_write_msr(GLC,15,7);
+		} else if (tsk->se.collection_round == 2) {
+			native_write_msr(PCC0,0x000120d3,0);
+        	native_write_msr(PCC1,0x000110d3,0);
+        	native_write_msr(PCC2,0x000130d1,0);//0x0001412e to 30d1
+			native_write_msr(PCC3,0x010101a3,0);
+
+
+			tsk->se.tmp_instructions += native_read_msr(FC0);
+			tsk->se.tmp_instructions = tsk->se.tmp_instructions / 2;
+			tsk->se.tmp_cycles += native_read_msr(FC1);
+			tsk->se.tmp_cycles = tsk->se.tmp_cycles / 2;
+			tsk->se.collection_round = 3;
+			tsk->se.instructions = tsk->se.tmp_instructions;
+			tsk->se.cycles = tsk->se.tmp_cycles;
+			tsk->se.collection_active = 0;
+			// sp_record_ipc(cpu, tsk->pid, tsk->se.instructions, tsk->se.cycles);
+		}
+	}
+}
+*/
+
+/*
  * This function gets called by the timer code, with HZ frequency.
  * We call it with interrupts disabled.
  */
@@ -5445,6 +5603,7 @@ void scheduler_tick(void)
 	arch_scale_freq_tick();
 	sched_clock_tick();
 
+	// monitor_processes(cpu);
 	rq_lock(rq, &rf);
 
 	update_rq_clock(rq);
@@ -6463,6 +6622,8 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 #endif
 
 	if (likely(prev != next)) {
+		sp_record_context_switch(prev->pid, prev->tgid, 
+							  next->pid, next->tgid, cpu_of(rq));
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see
@@ -9637,6 +9798,7 @@ void __init sched_init(void)
 
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		init_cfs_bandwidth(&root_task_group.cfs_bandwidth);
+		root_task_group.from_cgroup = 0;
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 #ifdef CONFIG_RT_GROUP_SCHED
 		root_task_group.rt_se = (struct sched_rt_entity **)ptr;
@@ -9644,6 +9806,7 @@ void __init sched_init(void)
 
 		root_task_group.rt_rq = (struct rt_rq **)ptr;
 		ptr += nr_cpu_ids * sizeof(void **);
+		
 
 #endif /* CONFIG_RT_GROUP_SCHED */
 	}
@@ -9731,8 +9894,11 @@ void __init sched_init(void)
 		rq->wake_stamp = jiffies;
 		rq->wake_avg_idle = rq->avg_idle;
 		rq->max_idle_balance_cost = sysctl_sched_migration_cost;
-
+		rq->resv_tg = NULL;
+		rq->resv_nr_running = 0;
+		
 		INIT_LIST_HEAD(&rq->cfs_tasks);
+		INIT_LIST_HEAD(&rq->spot_tasks);
 
 		rq_attach_root(rq, &def_root_domain);
 #ifdef CONFIG_NO_HZ_COMMON
@@ -10101,7 +10267,7 @@ struct task_group *sched_create_group(struct task_group *parent)
 		goto err;
 
 	alloc_uclamp_sched_group(tg, parent);
-
+	tg->from_cgroup = 0;
 	return tg;
 
 err:
@@ -10246,7 +10412,7 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	tg = sched_create_group(parent);
 	if (IS_ERR(tg))
 		return ERR_PTR(-ENOMEM);
-
+	tg->from_cgroup = 0;
 	return &tg->css;
 }
 
@@ -10726,6 +10892,84 @@ static int cpu_cfs_quota_write_s64(struct cgroup_subsys_state *css,
 	return tg_set_cfs_quota(css_tg(css), cfs_quota_us);
 }
 
+static ssize_t cpu_reserved_cpuset_write(struct kernfs_open_file *of,
+				    char *buf, size_t nbytes, loff_t off)
+{
+	struct task_group * tg = css_tg(of_css(of));
+	int cpu, retval = -ENODEV;
+	struct css_task_iter it;
+	struct task_struct *task;
+
+	buf = strstrip(buf);
+
+	cpus_read_lock();
+	mutex_lock(&cfs_constraints_mutex);
+	// printk(KERN_INFO "current pid: %d %d", current->pid, task_cpu(current));
+	bash_pid = current->pid;
+	cpumask_clear(&tg->resv_cpumask);
+	retval = cpulist_parse(buf, &tg->resv_cpumask);
+	if (retval < 0)
+		goto resv_unlock;
+
+	tg->from_cgroup = 1;
+
+	for_each_cpu(cpu, &tg->resv_cpumask) {
+		struct rq * rq = cpu_rq(cpu);
+		struct rq_flags rf;
+		rq_lock(rq, &rf);
+		rq->resv_tg = tg;
+		rq_unlock(rq, &rf);
+	}
+	mutex_unlock(&cfs_constraints_mutex);
+
+
+	css_task_iter_start(&tg->css, 0, &it);
+	while ((task = css_task_iter_next(&it))) {
+		struct rq_flags rf;
+		struct rq * rq = task_rq_lock(task, &rf);
+		if (!cpumask_empty(&task->sched_task_group->resv_cpumask) && 
+			!cpumask_test_cpu(task_cpu(task), &task->sched_task_group->resv_cpumask)) {
+			
+			int dest_cpu = cpumask_any_and_distribute(cpu_online_mask, &task->sched_task_group->resv_cpumask);
+			// int dest_cpu = find_idlest_resv_cpu(tg, cpumask_last(&task->sched_task_group->resv_cpumask));
+			update_rq_clock(rq);
+			affine_move_task(rq, task, &rf, dest_cpu, 0);
+			// printk(KERN_INFO "moving: %d %d %d", task->pid, cpu_of(rq), dest_cpu);
+
+			continue;
+
+		} else if (!cpumask_empty(&task->sched_task_group->resv_cpumask)) {
+			task->se.resv_cpu = task_cpu(task);
+			task_rq_unlock(rq, task, &rf);
+		}
+		else {
+			task_rq_unlock(rq, task, &rf);
+		}
+	}
+	css_task_iter_end(&it);
+	
+	// printk(KERN_INFO "-----");
+	// for_each_online_cpu(cpu) {
+	// 	printk(KERN_INFO "%d %d", cpu, tg->cfs_rq[cpu]->h_nr_running);
+	// }
+	// printk(KERN_INFO "-----");
+
+	for_each_cpu(cpu, &tg->resv_cpumask) {
+		struct rq * rq = cpu_rq(cpu);
+		struct rq_flags rf;
+		rq_lock(rq, &rf);
+		if (rq->curr == rq->idle || rq->curr->sched_task_group != tg)
+			resched_curr(rq);
+		rq_unlock(rq, &rf);
+	}
+
+resv_unlock:
+	cpus_read_unlock();
+
+	return retval ?: nbytes;
+
+}
+
 static u64 cpu_cfs_period_read_u64(struct cgroup_subsys_state *css,
 				   struct cftype *cft)
 {
@@ -10936,6 +11180,10 @@ static struct cftype cpu_legacy_files[] = {
 		.name = "stat",
 		.seq_show = cpu_cfs_stat_show,
 	},
+	{
+		.name = "reserve_cpus",
+		.write = cpu_reserved_cpuset_write,
+	},
 #endif
 #ifdef CONFIG_RT_GROUP_SCHED
 	{
@@ -11145,6 +11393,10 @@ static struct cftype cpu_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.read_u64 = cpu_cfs_burst_read_u64,
 		.write_u64 = cpu_cfs_burst_write_u64,
+	},
+	{
+		.name = "reserve_cpus",
+		.write = cpu_reserved_cpuset_write,
 	},
 #endif
 #ifdef CONFIG_UCLAMP_TASK_GROUP

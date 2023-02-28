@@ -90,6 +90,10 @@ struct task_struct init_task
 	},
 	.se		= {
 		.group_node 	= LIST_HEAD_INIT(init_task.se.group_node),
+		.spot_node		= LIST_HEAD_INIT(init_task.se.spot_node),
+		.resv_cpu		= -1,
+		// .collection_active = 0,
+		// .collection_round = 0,
 	},
 	.rt		= {
 		.run_list	= LIST_HEAD_INIT(init_task.rt.run_list),
