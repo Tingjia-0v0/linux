@@ -104,6 +104,13 @@ struct cpuidle_state;
 #define TASK_ON_RQ_QUEUED	1
 #define TASK_ON_RQ_MIGRATING	2
 
+extern void record_rq_size(int dst_cpu, int nr_running);
+extern void record_rq_resv_size(int dst_cpu, int h_nr_running);
+extern void sp_record_ipc(int cpu, int pid, long instructions, long cycles);
+
+extern void sp_record_context_switch(int prev_pid, int prev_tgid, 
+							  int next_pid, int next_tgid, int cpu);
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
@@ -432,6 +439,7 @@ struct task_group {
 	/* Effective clamp values used for a task group */
 	struct uclamp_se	uclamp[UCLAMP_CNT];
 #endif
+	cpumask_t resv_cpumask;
 
 };
 
@@ -1068,6 +1076,7 @@ struct rq {
 	int			online;
 
 	struct list_head cfs_tasks;
+	struct list_head spot_tasks;
 
 	struct sched_avg	avg_rt;
 	struct sched_avg	avg_dl;
@@ -1159,6 +1168,7 @@ struct rq {
 	unsigned int		core_forceidle_occupation;
 	u64			core_forceidle_start;
 #endif
+	struct task_group * resv_tg;
 };
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -2405,6 +2415,17 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	unsigned prev_nr = rq->nr_running;
 
 	rq->nr_running = prev_nr + count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
+	if (rq->resv_tg != NULL && !cpumask_empty(&rq->resv_tg->resv_cpumask))
+		record_rq_resv_size(cpu_of(rq), rq->resv_tg->cfs_rq[cpu_of(rq)]->h_nr_running);
+	// if (rq->resv_tg) {
+		// printk(KERN_INFO "-----");
+		// int cpu;
+		// for_each_cpu(cpu, &rq->resv_tg->resv_cpumask) {
+		// 	printk(KERN_INFO "%d %d", cpu, cpu_rq(cpu)->resv_tg->cfs_rq[cpu]->h_nr_running);
+		// }
+		// printk(KERN_INFO "-----");
+	// }
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
 	}
@@ -2422,6 +2443,9 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
 	rq->nr_running -= count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
+	if (rq->resv_tg != NULL && !cpumask_empty(&rq->resv_tg->resv_cpumask))
+		record_rq_resv_size(cpu_of(rq), rq->resv_tg->cfs_rq[cpu_of(rq)]->h_nr_running);
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, -count);
 	}
@@ -2434,7 +2458,8 @@ extern void activate_task(struct rq *rq, struct task_struct *p, int flags);
 extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
 
 extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
-
+extern int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flags *rf,
+			    int dest_cpu, unsigned int flags);
 extern const_debug unsigned int sysctl_sched_nr_migrate;
 extern const_debug unsigned int sysctl_sched_migration_cost;
 
@@ -3156,5 +3181,7 @@ extern int preempt_dynamic_mode;
 extern int sched_dynamic_mode(const char *str);
 extern void sched_dynamic_update(int mode);
 #endif
+
+// extern int bash_pid;
 
 #endif /* _KERNEL_SCHED_SCHED_H */
