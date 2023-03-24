@@ -55,6 +55,36 @@
 #include "stats.h"
 #include "autogroup.h"
 
+#include <linux/module.h>
+
+typedef void (* sp_record_activate_task_t)(int, int, int, int);
+typedef void (* sp_record_ipc_t)(int, int, long, long);
+
+__read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
+__read_mostly volatile sp_record_ipc_t module_record_ipc = NULL;
+
+void sp_record_activate_task(int task_pid, int task_tgid, int cpu, int flag) {
+	if (module_record_activate_task)
+		(*module_record_activate_task)(task_pid, task_tgid, cpu, flag);
+}
+
+void sp_record_ipc(int cpu, int pid, long instructions, long cycles) {
+	if (module_record_ipc)
+		(*module_record_ipc)(cpu, pid, instructions, cycles);
+}
+
+void set_module_record_activate_task(sp_record_activate_task_t __module_record_activate_task) {
+	module_record_activate_task = __module_record_activate_task;
+}
+
+void set_module_record_ipc(sp_record_ipc_t __module_record_ipc) {
+	module_record_ipc = __module_record_ipc;
+}
+
+EXPORT_SYMBOL(set_module_record_activate_task);
+EXPORT_SYMBOL(set_module_record_ipc);
+
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *

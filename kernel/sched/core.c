@@ -2091,6 +2091,8 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 	enqueue_task(rq, p, flags);
 
 	p->on_rq = TASK_ON_RQ_QUEUED;
+
+	sp_record_activate_task(p->pid, p->tgid, cpu_of(rq), 0);
 }
 
 void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
@@ -2098,6 +2100,8 @@ void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 	p->on_rq = (flags & DEQUEUE_SLEEP) ? 0 : TASK_ON_RQ_MIGRATING;
 
 	dequeue_task(rq, p, flags);
+
+	sp_record_activate_task(p->pid, p->tgid, cpu_of(rq), 1);
 }
 
 static inline int __normal_prio(int policy, int rt_prio, int nice)
@@ -4336,6 +4340,8 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
+	p->se.collection_active	= 0;
+	p->se.collection_round		= 0;
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -5429,6 +5435,48 @@ __setup("resched_latency_warn_ms=", setup_resched_latency_warn_ms);
 static inline u64 cpu_resched_latency(struct rq *rq) { return 0; }
 #endif /* CONFIG_SCHED_DEBUG */
 
+#define PERF_FIXED_CTR0 0x309
+#define PERF_FIXED_CTR1 0x30A
+
+#define FC0 PERF_FIXED_CTR0
+#define FC1 PERF_FIXED_CTR1
+
+static void monitor_processes(const int cpu)
+{
+	struct task_struct *tsk;
+	struct rq *rq;
+	
+	rq = cpu_rq(cpu);
+	tsk = rq->curr;
+	if (tsk->sched_class != &fair_sched_class)
+		return;
+	if (tsk->se.collection_active != 1) {
+		// tsk->temp.inst = native_read_msr(FC0);
+		tsk->se.collection_active = 1;
+		tsk->se.collection_round = 1;
+		native_write_msr(FC0,0,0);
+	    native_write_msr(FC1,0,0);
+	} else {
+		if (tsk->se.collection_round == 1) {
+			tsk->se.tmp_instructions = native_read_msr(FC0);
+		    tsk->se.tmp_cycles = native_read_msr(FC1);
+			tsk->se.collection_round = 2;
+			native_write_msr(FC0,0,0);
+			native_write_msr(FC1,0,0);
+		} else if (tsk->se.collection_round == 2) {
+			tsk->se.tmp_instructions += native_read_msr(FC0);
+			tsk->se.tmp_instructions = tsk->se.tmp_instructions / 2;
+			tsk->se.tmp_cycles += native_read_msr(FC1);
+			tsk->se.tmp_cycles = tsk->se.tmp_cycles / 2;
+			tsk->se.collection_round = 3;
+			tsk->se.instructions = tsk->se.tmp_instructions;
+			tsk->se.cycles = tsk->se.tmp_cycles;
+			tsk->se.collection_active = 0;
+			sp_record_ipc(cpu, tsk->pid, tsk->se.cycles, tsk->se.collection_active);
+		}
+	}
+}
+
 /*
  * This function gets called by the timer code, with HZ frequency.
  * We call it with interrupts disabled.
@@ -5445,8 +5493,9 @@ void scheduler_tick(void)
 	arch_scale_freq_tick();
 	sched_clock_tick();
 
-	rq_lock(rq, &rf);
+	monitor_processes(cpu);
 
+	rq_lock(rq, &rf);
 	update_rq_clock(rq);
 	thermal_pressure = arch_scale_thermal_pressure(cpu_of(rq));
 	update_thermal_load_avg(rq_clock_thermal(rq), rq, thermal_pressure);

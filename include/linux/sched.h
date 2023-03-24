@@ -568,6 +568,12 @@ struct sched_entity {
 	 */
 	struct sched_avg		avg;
 #endif
+	int collection_active;
+	int collection_round;
+	long tmp_instructions;
+	long tmp_cycles;
+	long instructions;
+	long cycles;
 };
 
 struct sched_rt_entity {
