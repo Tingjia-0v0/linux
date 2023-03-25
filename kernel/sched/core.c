@@ -5472,7 +5472,7 @@ static void monitor_processes(const int cpu)
 			tsk->se.instructions = tsk->se.tmp_instructions;
 			tsk->se.cycles = tsk->se.tmp_cycles;
 			tsk->se.collection_active = 0;
-			sp_record_ipc(cpu, tsk->pid, tsk->se.cycles, tsk->se.collection_active);
+			sp_record_ipc(cpu, tsk->pid, tsk->se.instructions, tsk->se.cycles);
 		}
 	}
 }
