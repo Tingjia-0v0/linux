@@ -5435,11 +5435,33 @@ __setup("resched_latency_warn_ms=", setup_resched_latency_warn_ms);
 static inline u64 cpu_resched_latency(struct rq *rq) { return 0; }
 #endif /* CONFIG_SCHED_DEBUG */
 
+#define IA32_FIXED_CTR_CTRL 0x38D
+#define IA32_PERF_GLOBAL_CTRL 0x38F
 #define PERF_FIXED_CTR0 0x309
 #define PERF_FIXED_CTR1 0x30A
+#define PERF_FIXED_CTR2 0x30B
+#define PerfEvtSel0 0x186
+#define PerfEvtSel1 0x187
+#define PerfEvtSel2 0x188
+#define PerfEvtSel3 0x189
+#define IA32_PMC0 0xC1
+#define IA32_PMC1 0xC2
+#define IA32_PMC2 0xC3
+#define IA32_PMC3 0xC4
 
 #define FC0 PERF_FIXED_CTR0
 #define FC1 PERF_FIXED_CTR1
+#define FC2 PERF_FIXED_CTR2
+#define FCC IA32_FIXED_CTR_CTRL
+#define GLC IA32_PERF_GLOBAL_CTRL
+#define PCC0 PerfEvtSel0
+#define PCC1 PerfEvtSel1
+#define PCC2 PerfEvtSel2
+#define PCC3 PerfEvtSel3
+#define PC0 IA32_PMC0
+#define PC1 IA32_PMC1
+#define PC2 IA32_PMC2
+#define PC3 IA32_PMC3
 
 static void monitor_processes(const int cpu)
 {
@@ -5456,14 +5478,37 @@ static void monitor_processes(const int cpu)
 		tsk->se.collection_round = 1;
 		native_write_msr(FC0,0,0);
 	    native_write_msr(FC1,0,0);
+		native_write_msr(PCC0,0x004104d2,0);
+        native_write_msr(PCC1,0x004102d2,0);
+        native_write_msr(PCC2,0x004101d3,0);
+		native_write_msr(PCC3,0x004104d3,0);
+        native_write_msr(FCC,819,0);
+        native_write_msr(GLC,15,7);
 	} else {
 		if (tsk->se.collection_round == 1) {
+			native_write_msr(PCC0,0x000104d2,0);
+			native_write_msr(PCC1,0x000102d2,0);
+			native_write_msr(PCC2,0x000101d3,0);
+			native_write_msr(PCC3,0x000104d3,0);
+
 			tsk->se.tmp_instructions = native_read_msr(FC0);
 		    tsk->se.tmp_cycles = native_read_msr(FC1);
 			tsk->se.collection_round = 2;
 			native_write_msr(FC0,0,0);
 			native_write_msr(FC1,0,0);
+			native_write_msr(PCC0,0x004120d3,0);
+			native_write_msr(PCC1,0x004110d3,0);
+			native_write_msr(PCC2,0x004130d1,0);
+			native_write_msr(PCC3,0x014101a3,0);
+			native_write_msr(FCC,819,0);
+			native_write_msr(GLC,15,7);
 		} else if (tsk->se.collection_round == 2) {
+			native_write_msr(PCC0,0x000120d3,0);
+        	native_write_msr(PCC1,0x000110d3,0);
+        	native_write_msr(PCC2,0x000130d1,0);//0x0001412e to 30d1
+			native_write_msr(PCC3,0x010101a3,0);
+
+
 			tsk->se.tmp_instructions += native_read_msr(FC0);
 			tsk->se.tmp_instructions = tsk->se.tmp_instructions / 2;
 			tsk->se.tmp_cycles += native_read_msr(FC1);
