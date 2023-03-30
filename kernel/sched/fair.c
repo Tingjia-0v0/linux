@@ -6224,7 +6224,7 @@ find_idlest_group_cpu(struct sched_group *group, struct task_struct *p, int this
 	cpumask_and(&allowed_cpus_in_group, sched_group_span(group), p->cpus_ptr);
 	if (!cpumask_empty(&task_group(p)->resv_cpumask))
 		cpumask_and(&allowed_cpus_in_group, &allowed_cpus_in_group, &task_group(p)->resv_cpumask);
-	}
+	
 	/* Check if we have any choice: */
 	if (group->group_weight == 1)
 		return cpumask_first(sched_group_span(group));
@@ -7504,8 +7504,10 @@ pick_next_resv_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 
 		original_first_se = pick_next_entity(cfs_rq, curr);
 	}
-	if (original_first_se && entity_is_task(original_first_se))
+	if (original_first_se && entity_is_task(original_first_se)) {
+		// printk(KERN_INFO "choose a task from root group%d\n", task_of(original_first_se)->pid);
 		return NULL;
+	}
 	
 again:
 	if (resv_cfs_rq->h_nr_running == 0)

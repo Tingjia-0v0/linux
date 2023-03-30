@@ -4221,9 +4221,9 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 	
 	cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
-	if (bash_pid != -1 && p->pid == bash_pid) {
-		cpu = cpumask_last(cpu_online_mask);
-	}
+	// if (bash_pid != -1 && p->pid == bash_pid) {
+	// 	cpu = cpumask_last(cpu_online_mask);
+	// }
 
 	if (task_cpu(p) != cpu) {
 		if (p->in_iowait) {
