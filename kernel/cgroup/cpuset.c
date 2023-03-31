@@ -2980,10 +2980,11 @@ static void cpuset_bind(struct cgroup_subsys_state *root_css)
  */
 static void cpuset_fork(struct task_struct *task)
 {
+	struct cpuset * cs;
 	if (task_css_is_root(task, cpuset_cgrp_id))
 		return;
-
-	set_cpus_allowed_ptr(task, current->cpus_ptr);
+	cs = task_cs(task);
+	set_cpus_allowed_ptr(task, cs->effective_cpus);
 	task->mems_allowed = current->mems_allowed;
 }
 
