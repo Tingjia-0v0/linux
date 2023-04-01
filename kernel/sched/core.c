@@ -6619,6 +6619,17 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 #endif
 
 	if (likely(prev != next)) {
+		struct task_group * tg = task_group(prev);
+		if (tg != &root_task_group) {
+			atomic_inc(&tg->nr_running);
+			tg->nr_running_cpu[cpu] += 1;
+		}
+		tg = task_group(next);
+		if (tg != &root_task_group) {
+			atomic_dec(&tg->nr_running);
+			tg->nr_running_cpu[cpu] -= 1;
+		}
+
 		sp_record_context_switch(prev->pid, prev->tgid, 
 							  next->pid, next->tgid, cpu_of(rq));
 		rq->nr_switches++;

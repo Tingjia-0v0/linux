@@ -441,6 +441,8 @@ struct task_group {
 #endif
 	cpumask_t resv_cpumask;
 
+	atomic_t nr_running;
+	int nr_running_cpu[NR_CPUS];
 };
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -2417,15 +2419,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	rq->nr_running = prev_nr + count;
 	record_rq_size(cpu_of(rq), rq->nr_running);
 	if (rq->resv_tg != NULL && !cpumask_empty(&rq->resv_tg->resv_cpumask))
-		record_rq_resv_size(cpu_of(rq), rq->resv_tg->cfs_rq[cpu_of(rq)]->h_nr_running);
-	// if (rq->resv_tg) {
-		// printk(KERN_INFO "-----");
-		// int cpu;
-		// for_each_cpu(cpu, &rq->resv_tg->resv_cpumask) {
-		// 	printk(KERN_INFO "%d %d", cpu, cpu_rq(cpu)->resv_tg->cfs_rq[cpu]->h_nr_running);
-		// }
-		// printk(KERN_INFO "-----");
-	// }
+
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
 	}
