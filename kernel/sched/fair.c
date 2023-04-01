@@ -7615,6 +7615,7 @@ idle:
 	rq_unlock(busiest_resv_rq, &rf2);
 	
 	if (new_task == NULL) {
+		local_irq_restore(rf2.flags);
 		rcu_read_unlock();
 		rq_lock(rq, rf);
 		update_rq_clock(rq);
