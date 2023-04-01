@@ -11552,7 +11552,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	if (busiest_tg_cpu == -1)
 		goto old_balance;
 
-	printk(KERN_INFO "busiest cpu: %d %d", busiest_tg_cpu, max_tg_num);
+	// printk(KERN_INFO "busiest cpu: %d %d", busiest_tg_cpu, max_tg_num);
 
 	if (this_cpu == cpumask_last(cpu_online_mask))
 		goto old_balance;
@@ -11560,24 +11560,35 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	src_rq = cpu_rq(busiest_tg_cpu);
 	src_cpu = cpu_of(src_rq);
 
+	rq_lock_irqsave(src_rq, &rf2);
+	update_rq_clock(src_rq);
+
+	if (busiest_tg->nr_running_cpu[src_cpu] <= 1) {
+		rq_unlock(src_rq, &rf2);
+		local_irq_restore(rf2.flags);
+		goto old_balance;
+	}
+
 	if (cpumask_test_cpu(busiest_tg_cpu, &busiest_tg->resv_cpumask)
 			&& !cpumask_test_cpu(this_cpu, &busiest_tg->resv_cpumask)) {
 		int cpu;
-		if (src_rq->curr->sched_class != &fair_sched_class || task_group(src_rq->curr) != busiest_tg)
+		if (src_rq->curr->sched_class != &fair_sched_class || task_group(src_rq->curr) != busiest_tg) {
+			rq_unlock(src_rq, &rf2);
+			local_irq_restore(rf2.flags);
 			goto old_balance;
+		}
 
 		for_each_cpu(cpu, &busiest_tg->resv_cpumask) {
 			int resv_task_num = busiest_tg->cfs_rq[cpu]->h_nr_running;
 			if ((cpu == src_cpu && resv_task_num <= 1)|| (cpu != src_cpu && resv_task_num == 0)) {
+				rq_unlock(src_rq, &rf2);
+				local_irq_restore(rf2.flags);
 				goto old_balance;
 			}
 		}
 		
 	}
 
-	rq_lock_irqsave(src_rq, &rf2);
-	update_rq_clock(src_rq);
-	
 	list_for_each_entry_reverse(p, &src_rq->cfs_tasks, se.group_node) {
 		struct rq_flags rf3;
 		if (task_group(p) != busiest_tg)
