@@ -11470,18 +11470,6 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	u64 t0, t1, curr_cost = 0;
 	struct sched_domain *sd;
 	int pulled_task = 0;
-	/*
-	struct task_group *tg;
-	struct task_group *busiest_tg = NULL;
-	int max_spot_task_num = 0;
-	int cpu;
-	int busiest_tg_cpu = -1;
-	int max_tg_num = 0;
-	struct task_struct *p;
-	struct rq * src_rq;
-	int src_cpu;
-	struct rq_flags rf2;
-	*/
 
 	update_misfit_status(NULL, this_rq);
 
@@ -11530,100 +11518,8 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 
 	t0 = sched_clock_cpu(this_cpu);
 	update_blocked_averages(this_cpu);
-	/*
+
 	rcu_read_lock();
-
-	list_for_each_entry_rcu(tg, &task_groups, list) {
-		
-		if (tg != &root_task_group && !cpumask_empty(&tg->resv_cpumask)) {
-			int spot_task_num = atomic_read(&tg->nr_running);
-			if (spot_task_num > max_spot_task_num) {
-				max_spot_task_num = spot_task_num;
-				busiest_tg = tg;
-			}
-		}
-	}
-	if (busiest_tg == NULL)
-		goto old_balance;
-	
-	for_each_online_cpu(cpu) {
-		int tg_num = busiest_tg->nr_running_cpu[cpu];
-		if (tg_num > max_tg_num) {
-			max_tg_num = tg_num;
-			busiest_tg_cpu = cpu;
-		}
-	}
-
-	if (busiest_tg_cpu == -1)
-		goto old_balance;
-
-	if (this_cpu == cpumask_last(cpu_online_mask))
-		goto old_balance;
-
-	src_rq = cpu_rq(busiest_tg_cpu);
-	src_cpu = busiest_tg_cpu;
-
-	rq_lock_irqsave(src_rq, &rf2);
-	update_rq_clock(src_rq);
-
-	if (busiest_tg->nr_running_cpu[src_cpu] <= 1) {
-		rq_unlock(src_rq, &rf2);
-		local_irq_restore(rf2.flags);
-		goto old_balance;
-	}
-
-	if (cpumask_test_cpu(busiest_tg_cpu, &busiest_tg->resv_cpumask)
-			&& !cpumask_test_cpu(this_cpu, &busiest_tg->resv_cpumask)) {
-		int cpu;
-		if (src_rq->curr->sched_class != &fair_sched_class || task_group(src_rq->curr) != busiest_tg) {
-			rq_unlock(src_rq, &rf2);
-			local_irq_restore(rf2.flags);
-			goto old_balance;
-		}
-
-		for_each_cpu(cpu, &busiest_tg->resv_cpumask) {
-			int resv_task_num = busiest_tg->cfs_rq[cpu]->h_nr_running;
-			if ((cpu == src_cpu && resv_task_num <= 1)|| (cpu != src_cpu && resv_task_num == 0)) {
-				rq_unlock(src_rq, &rf2);
-				local_irq_restore(rf2.flags);
-				goto old_balance;
-			}
-		}
-		
-	}
-
-	list_for_each_entry_reverse(p, &src_rq->cfs_tasks, se.group_node) {
-		struct rq_flags rf3;
-		if (task_group(p) != busiest_tg)
-			continue;
-		if (!cpumask_test_cpu(this_cpu, p->cpus_ptr))
-			continue;
-
-		if (task_running(src_rq, p))
-			continue;				
-
-		deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
-		set_task_cpu(p, this_cpu);
-		rq_unlock(src_rq, &rf2);
-		
-		rq_lock(this_rq, &rf3);
-		update_rq_clock(this_rq);
-
-		list_del_init(&p->se.group_node);
-		attach_task(this_rq, p);
-		
-		rq_unlock(this_rq, &rf3);
-
-		local_irq_restore(rf2.flags);
-		goto prepare_out;
-
-	}
-
-	rq_unlock(src_rq, &rf2);
-	local_irq_restore(rf2.flags);
-
-old_balance:
-	*/
 	for_each_domain(this_cpu, sd) {
 		int continue_balancing = 1;
 		u64 domain_cost;
@@ -11655,8 +11551,6 @@ old_balance:
 		    this_rq->ttwu_pending)
 			break;
 	}
-
-// prepare_out:
 	rcu_read_unlock();
 
 	raw_spin_rq_lock(this_rq);
