@@ -7623,11 +7623,12 @@ idle:
 	}
 	
 	attach_resv_task(new_task, cpu_of(rq));
-	// printk(KERN_INFO "moving: %d %d %d", new_task->pid, cpu_of(rq), cpu_of(busiest_resv_rq));
+
+	local_irq_restore(rf2.flags);
 	rcu_read_unlock();
 	rq_lock(rq, rf);
 	update_rq_clock(rq);
-	local_irq_restore(rf2.flags);
+	
 	goto again;
 }
 
@@ -11469,6 +11470,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	u64 t0, t1, curr_cost = 0;
 	struct sched_domain *sd;
 	int pulled_task = 0;
+	/*
 	struct task_group *tg;
 	struct task_group *busiest_tg = NULL;
 	int max_spot_task_num = 0;
@@ -11479,6 +11481,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	struct rq * src_rq;
 	int src_cpu;
 	struct rq_flags rf2;
+	*/
 
 	update_misfit_status(NULL, this_rq);
 
@@ -11527,7 +11530,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 
 	t0 = sched_clock_cpu(this_cpu);
 	update_blocked_averages(this_cpu);
-
+	/*
 	rcu_read_lock();
 
 	list_for_each_entry_rcu(tg, &task_groups, list) {
@@ -11550,16 +11553,15 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 			busiest_tg_cpu = cpu;
 		}
 	}
+
 	if (busiest_tg_cpu == -1)
 		goto old_balance;
-
-	// printk(KERN_INFO "busiest cpu: %d %d", busiest_tg_cpu, max_tg_num);
 
 	if (this_cpu == cpumask_last(cpu_online_mask))
 		goto old_balance;
 
 	src_rq = cpu_rq(busiest_tg_cpu);
-	src_cpu = cpu_of(src_rq);
+	src_cpu = busiest_tg_cpu;
 
 	rq_lock_irqsave(src_rq, &rf2);
 	update_rq_clock(src_rq);
@@ -11619,7 +11621,9 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 
 	rq_unlock(src_rq, &rf2);
 	local_irq_restore(rf2.flags);
+
 old_balance:
+	*/
 	for_each_domain(this_cpu, sd) {
 		int continue_balancing = 1;
 		u64 domain_cost;
@@ -11652,7 +11656,7 @@ old_balance:
 			break;
 	}
 
-prepare_out:
+// prepare_out:
 	rcu_read_unlock();
 
 	raw_spin_rq_lock(this_rq);
