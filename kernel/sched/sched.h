@@ -121,6 +121,10 @@ extern int sysctl_sched_rt_runtime;
 extern int sched_rr_timeslice;
 extern void sp_record_activate_task(int task_pid, int task_tgid, int cpu, int flag);
 extern void sp_record_ipc(int cpu, int pid, long instructions, long cycles);
+extern void record_rq_size(int dst_cpu, int nr_running);
+extern void sp_record_context_switch(int prev_pid, int prev_tgid, 
+							  int next_pid, int next_tgid, int cpu);
+
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
@@ -2406,6 +2410,8 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	unsigned prev_nr = rq->nr_running;
 
 	rq->nr_running = prev_nr + count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
+
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
 	}
@@ -2423,6 +2429,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
 	rq->nr_running -= count;
+	record_rq_size(cpu_of(rq), rq->nr_running);
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, -count);
 	}

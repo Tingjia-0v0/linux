@@ -59,9 +59,24 @@
 
 typedef void (* sp_record_activate_task_t)(int, int, int, int);
 typedef void (* sp_record_ipc_t)(int, int, long, long);
+typedef void (* record_rq_size_t)(int, int);
+typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile sp_record_ipc_t module_record_ipc = NULL;
+__read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
+__read_mostly volatile sp_record_context_switch_t sp_module_record_context_switch = NULL;
+
+void record_rq_size(int dst_cpu, int nr_running) {
+	if (module_record_rq_size)
+		(*module_record_rq_size)(dst_cpu, nr_running);
+}
+
+void sp_record_context_switch(int prev_pid, int prev_tgid, 
+							  int next_pid, int next_tgid, int cpu) {
+	if (sp_module_record_context_switch)
+		(*sp_module_record_context_switch)(prev_pid, prev_tgid, next_pid, next_tgid, cpu);
+}
 
 void sp_record_activate_task(int task_pid, int task_tgid, int cpu, int flag) {
 	if (module_record_activate_task)
@@ -73,6 +88,15 @@ void sp_record_ipc(int cpu, int pid, long instructions, long cycles) {
 		(*module_record_ipc)(cpu, pid, instructions, cycles);
 }
 
+void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
+	module_record_rq_size = __module_record_rq_size;
+}
+
+void set_sp_module_record_context_switch(sp_record_context_switch_t __sp_module_record_context_switch) {
+	sp_module_record_context_switch = __sp_module_record_context_switch;
+}
+
+
 void set_module_record_activate_task(sp_record_activate_task_t __module_record_activate_task) {
 	module_record_activate_task = __module_record_activate_task;
 }
@@ -83,7 +107,8 @@ void set_module_record_ipc(sp_record_ipc_t __module_record_ipc) {
 
 EXPORT_SYMBOL(set_module_record_activate_task);
 EXPORT_SYMBOL(set_module_record_ipc);
-
+EXPORT_SYMBOL(set_module_record_rq_size);
+EXPORT_SYMBOL(set_sp_module_record_context_switch);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
