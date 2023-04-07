@@ -8191,7 +8191,7 @@ static int detach_tasks(struct lb_env *env)
 		}
 
 		detach_task(p, env);
-		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr_pid);
+		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;
