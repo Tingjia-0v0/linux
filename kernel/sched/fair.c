@@ -115,7 +115,7 @@ void set_sp_module_record_wakeup_migrate(sp_record_wakeup_migrate_t __sp_module_
 EXPORT_SYMBOL(set_module_record_activate_task);
 EXPORT_SYMBOL(set_module_record_rq_size);
 EXPORT_SYMBOL(set_sp_module_record_context_switch);
-EXPORT_SYMBOL(set_sp_module_record_wakeup_migrate)
+EXPORT_SYMBOL(set_sp_module_record_wakeup_migrate);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
