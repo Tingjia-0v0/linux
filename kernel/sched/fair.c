@@ -62,12 +62,14 @@ typedef void (* sp_record_ipc_t)(int, int, long, long);
 typedef void (* record_rq_size_t)(int, int);
 typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
+typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile sp_record_ipc_t module_record_ipc = NULL;
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
 __read_mostly volatile sp_record_context_switch_t sp_module_record_context_switch = NULL;
 __read_mostly volatile sp_record_wakeup_migrate_t sp_module_record_wakeup_migrate = NULL;
+__read_mostly volatile sp_record_lb_migrate_t sp_module_record_lb_migrate = NULL;
 
 void record_rq_size(int dst_cpu, int nr_running) {
 	if (module_record_rq_size)
@@ -96,6 +98,12 @@ void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid,
 		(*sp_module_record_wakeup_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid);
 }
 
+void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
+							  int src_pid, int target_pid) {
+	if (sp_module_record_lb_migrate)
+		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid);
+}
+
 void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
 	module_record_rq_size = __module_record_rq_size;
 }
@@ -112,10 +120,15 @@ void set_sp_module_record_wakeup_migrate(sp_record_wakeup_migrate_t __sp_module_
 	sp_module_record_wakeup_migrate = __sp_module_record_wakeup_migrate;
 }
 
+void set_sp_module_record_lb_migrate(sp_record_lb_migrate_t __sp_module_record_lb_migrate) {
+	sp_module_record_lb_migrate = __sp_module_record_lb_migrate;
+}
+
 EXPORT_SYMBOL(set_module_record_activate_task);
 EXPORT_SYMBOL(set_module_record_rq_size);
 EXPORT_SYMBOL(set_sp_module_record_context_switch);
 EXPORT_SYMBOL(set_sp_module_record_wakeup_migrate);
+EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -8178,6 +8191,7 @@ static int detach_tasks(struct lb_env *env)
 		}
 
 		detach_task(p, env);
+		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr_pid);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;

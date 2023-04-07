@@ -126,6 +126,8 @@ extern void sp_record_context_switch(int prev_pid, int prev_tgid,
 							  int next_pid, int next_tgid, int cpu);
 extern void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid, 
 							  int src_pid, int target_pid);
+extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
+							  int src_pid, int target_pid);
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
