@@ -4201,6 +4201,15 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		wake_flags |= WF_MIGRATED;
 		psi_ttwu_dequeue(p);
 		set_task_cpu(p, cpu);
+	} else {
+		if (p->sched_class == &fair_sched_class &&
+			cpu_rq(cpu)->curr->sched_class == &fair_sched_class &&
+			task_group(p) != &root_task_group && 
+			task_group(cpu_rq(cpu)->curr) != &root_task_group &&
+			task_group(cpu_rq(cpu)->curr) != task_group(p))
+			sp_record_wakeup_migrate(task_cpu(p), cpu, p->pid, 
+									 cpu_rq(task_cpu(p))->curr->pid, 
+									 cpu_rq(cpu)->curr->pid);
 	}
 #else
 	cpu = task_cpu(p);
