@@ -4186,6 +4186,13 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 	cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
 	if (task_cpu(p) != cpu) {
+		if (task_group(p) != &root_task_group && 
+			task_group(cpu_rq(cpu)->curr) != &root_task_group &&
+			task_group(p) != task_group(cpu_rq(cpu)->curr)) {
+			sp_record_wakeup_migrate(task_cpu(p), cpu, p->pid, 
+									 cpu_rq(task_cpu(p))->curr->pid, 
+									 cpu_rq(cpu)->curr->pid);
+		}
 		if (p->in_iowait) {
 			delayacct_blkio_end(p);
 			atomic_dec(&task_rq(p)->nr_iowait);
