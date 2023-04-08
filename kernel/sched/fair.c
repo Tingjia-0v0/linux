@@ -62,7 +62,8 @@ typedef void (* sp_record_ipc_t)(int, int, long, long);
 typedef void (* record_rq_size_t)(int, int);
 typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
-typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int);
+typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int);
+typedef void (* sp_record_rq_weight_t)(int, int);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile sp_record_ipc_t module_record_ipc = NULL;
@@ -70,6 +71,7 @@ __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
 __read_mostly volatile sp_record_context_switch_t sp_module_record_context_switch = NULL;
 __read_mostly volatile sp_record_wakeup_migrate_t sp_module_record_wakeup_migrate = NULL;
 __read_mostly volatile sp_record_lb_migrate_t sp_module_record_lb_migrate = NULL;
+__read_mostly volatile sp_record_rq_weight_t sp_module_record_rq_weight = NULL;
 
 void record_rq_size(int dst_cpu, int nr_running) {
 	if (module_record_rq_size)
@@ -99,9 +101,14 @@ void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid,
 }
 
 void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid) {
+							  int src_pid, int target_pid, int migration_type) {
 	if (sp_module_record_lb_migrate)
-		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid);
+		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type);
+}
+
+void sp_record_rq_weight(int cpu, unsigned int weight) {
+	if (sp_module_record_rq_weight)
+		(* sp_module_record_rq_weight)(cpu, weight);
 }
 
 void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
@@ -124,11 +131,16 @@ void set_sp_module_record_lb_migrate(sp_record_lb_migrate_t __sp_module_record_l
 	sp_module_record_lb_migrate = __sp_module_record_lb_migrate;
 }
 
+void set_sp_module_record_rq_weight(sp_record_rq_weight_t __sp_module_record_rq_weight) {
+	sp_module_record_rq_weight = __sp_module_record_rq_weight;
+}
+
 EXPORT_SYMBOL(set_module_record_activate_task);
 EXPORT_SYMBOL(set_module_record_rq_size);
 EXPORT_SYMBOL(set_sp_module_record_context_switch);
 EXPORT_SYMBOL(set_sp_module_record_wakeup_migrate);
 EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
+EXPORT_SYMBOL(set_sp_module_record_rq_weight);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -8191,7 +8203,7 @@ static int detach_tasks(struct lb_env *env)
 		}
 
 		detach_task(p, env);
-		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid);
+		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;

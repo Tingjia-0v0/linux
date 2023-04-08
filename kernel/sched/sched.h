@@ -127,7 +127,8 @@ extern void sp_record_context_switch(int prev_pid, int prev_tgid,
 extern void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid, 
 							  int src_pid, int target_pid);
 extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid);
+							  int src_pid, int target_pid, int migration_type);
+extern void sp_record_rq_weight(int cpu, unsigned int weight) ;
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
@@ -2414,6 +2415,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 	rq->nr_running = prev_nr + count;
 	record_rq_size(cpu_of(rq), rq->nr_running);
+	record_rq_weight(cpu_of(rq), (&rq->cfs)->load.weight);
 
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
