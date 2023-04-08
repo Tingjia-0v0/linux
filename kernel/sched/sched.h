@@ -2415,7 +2415,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 	rq->nr_running = prev_nr + count;
 	record_rq_size(cpu_of(rq), rq->nr_running);
-	record_rq_weight(cpu_of(rq), (&rq->cfs)->load.weight);
+	sp_record_rq_weight(cpu_of(rq), (&rq->cfs)->load.weight);
 
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
