@@ -3124,14 +3124,14 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 		account_numa_enqueue(rq, task_of(se));
 		list_add(&se->group_node, &rq->cfs_tasks);
-		sp_record_rq_weight(0, 0, rq_of(cfs_rq)->cpu, task_of(se)->pid, se->load.weight, cfs_rq->load.weight);
+		sp_record_rq_weight(0, 0, rq_of(cfs_rq)->cpu, task_of(se)->pid, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
 	}
 #endif
 	if (!parent_entity(se)) {
 		int cfs_nr_running = 0;
 		if (se->my_q)
 			cfs_nr_running = se->my_q->h_nr_running;
-		sp_record_rq_weight(1, 0, rq_of(cfs_rq)->cpu, cfs_nr_running, se->load.weight, cfs_rq->load.weight);
+		sp_record_rq_weight(1, 0, rq_of(cfs_rq)->cpu, cfs_nr_running, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
 	}
 	cfs_rq->nr_running++;
 	if (se_is_idle(se))
@@ -3257,9 +3257,9 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	if (se->on_rq)
 		update_load_add(&cfs_rq->load, se->load.weight);
 	if (!parent_entity(se))
-		sp_record_rq_weight(1, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
+		sp_record_rq_weight(1, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
 	else
-		sp_record_rq_weight(0, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
+		sp_record_rq_weight(0, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
 }
 
 void reweight_task(struct task_struct *p, int prio)
