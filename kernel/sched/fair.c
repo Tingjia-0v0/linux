@@ -3256,7 +3256,10 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	enqueue_load_avg(cfs_rq, se);
 	if (se->on_rq)
 		update_load_add(&cfs_rq->load, se->load.weight);
-	sp_record_rq_weight(0, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
+	if (!parent_entity(se))
+		sp_record_rq_weight(1, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
+	else
+		sp_record_rq_weight(0, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
 }
 
 void reweight_task(struct task_struct *p, int prio)
