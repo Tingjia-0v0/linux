@@ -120,7 +120,6 @@ extern unsigned int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 extern int sched_rr_timeslice;
 extern void sp_record_activate_task(int task_pid, int task_tgid, int cpu, int flag);
-extern void sp_record_ipc(int cpu, int pid, long instructions, long cycles);
 extern void record_rq_size(int dst_cpu, int nr_running);
 extern void sp_record_context_switch(int prev_pid, int prev_tgid, 
 							  int next_pid, int next_tgid, int cpu);
@@ -128,7 +127,7 @@ extern void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid,
 							  int src_pid, int target_pid);
 extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
 							  int src_pid, int target_pid, int migration_type);
-extern void sp_record_rq_weight(int cpu, unsigned int weight) ;
+extern void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight);
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
@@ -2415,7 +2414,6 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 	rq->nr_running = prev_nr + count;
 	record_rq_size(cpu_of(rq), rq->nr_running);
-	sp_record_rq_weight(cpu_of(rq), (&rq->cfs)->load.weight);
 
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);

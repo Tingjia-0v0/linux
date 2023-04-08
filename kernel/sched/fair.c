@@ -58,15 +58,13 @@
 #include <linux/module.h>
 
 typedef void (* sp_record_activate_task_t)(int, int, int, int);
-typedef void (* sp_record_ipc_t)(int, int, long, long);
 typedef void (* record_rq_size_t)(int, int);
 typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
 typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int);
-typedef void (* sp_record_rq_weight_t)(int, int);
+typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
-__read_mostly volatile sp_record_ipc_t module_record_ipc = NULL;
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
 __read_mostly volatile sp_record_context_switch_t sp_module_record_context_switch = NULL;
 __read_mostly volatile sp_record_wakeup_migrate_t sp_module_record_wakeup_migrate = NULL;
@@ -89,11 +87,6 @@ void sp_record_activate_task(int task_pid, int task_tgid, int cpu, int flag) {
 		(*module_record_activate_task)(task_pid, task_tgid, cpu, flag);
 }
 
-void sp_record_ipc(int cpu, int pid, long instructions, long cycles) {
-	if (module_record_ipc)
-		(*module_record_ipc)(cpu, pid, instructions, cycles);
-}
-
 void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid, 
 							  int src_pid, int target_pid) {
 	if (sp_module_record_wakeup_migrate)
@@ -106,9 +99,9 @@ void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid,
 		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type);
 }
 
-void sp_record_rq_weight(int cpu, unsigned int weight) {
+void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight) {
 	if (sp_module_record_rq_weight)
-		(* sp_module_record_rq_weight)(cpu, weight);
+		(* sp_module_record_rq_weight)(level, enqueue, cpu, task_num, se_weight, cfs_weight);
 }
 
 void set_module_record_rq_size(record_rq_size_t __module_record_rq_size) {
@@ -3131,8 +3124,15 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 		account_numa_enqueue(rq, task_of(se));
 		list_add(&se->group_node, &rq->cfs_tasks);
+		sp_record_rq_weight(0, 0, rq_of(cfs_rq)->cpu, task_of(se)->pid, se->load.weight, cfs_rq->load.weight);
 	}
 #endif
+	if (!parent_entity(se)) {
+		int cfs_nr_running = 0;
+		if (se->my_q)
+			cfs_nr_running = se->my_q->h_nr_running;
+		sp_record_rq_weight(1, 0, rq_of(cfs_rq)->cpu, cfs_nr_running, se->load.weight, cfs_rq->load.weight);
+	}
 	cfs_rq->nr_running++;
 	if (se_is_idle(se))
 		cfs_rq->idle_nr_running++;
@@ -3146,8 +3146,15 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (entity_is_task(se)) {
 		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
 		list_del_init(&se->group_node);
+		sp_record_rq_weight(0, 1, rq_of(cfs_rq)->cpu, task_of(se)->pid, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
 	}
 #endif
+	if (!parent_entity(se)) {
+		int cfs_nr_running = 0;
+		if (se->my_q)
+			cfs_nr_running = se->my_q->h_nr_running;
+		sp_record_rq_weight(1, 1, rq_of(cfs_rq)->cpu, cfs_nr_running, scale_load_down(se->load.weight), scale_load_down(cfs_rq->load.weight));
+	}
 	cfs_rq->nr_running--;
 	if (se_is_idle(se))
 		cfs_rq->idle_nr_running--;
@@ -3249,7 +3256,7 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	enqueue_load_avg(cfs_rq, se);
 	if (se->on_rq)
 		update_load_add(&cfs_rq->load, se->load.weight);
-
+	sp_record_rq_weight(0, 2, rq_of(cfs_rq)->cpu, cfs_rq->h_nr_running, se->load.weight, cfs_rq->load.weight);
 }
 
 void reweight_task(struct task_struct *p, int prio)
