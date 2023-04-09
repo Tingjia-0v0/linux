@@ -61,9 +61,9 @@ typedef void (* sp_record_activate_task_t)(int, int, int, int);
 typedef void (* record_rq_size_t)(int, int);
 typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
-typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int);
-typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long,
+typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int,
 									   unsigned long, unsigned int, unsigned long);
+typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
