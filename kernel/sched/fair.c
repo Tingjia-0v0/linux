@@ -8184,7 +8184,9 @@ static int detach_tasks(struct lb_env *env)
 			 * scheduler fails to find a good waiting task to
 			 * migrate.
 			 */
-			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
+			// if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
+			// 	goto next;
+			if (load > env->imbalance)
 				goto next;
 
 			env->imbalance -= load;
