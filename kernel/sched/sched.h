@@ -126,7 +126,8 @@ extern void sp_record_context_switch(int prev_pid, int prev_tgid,
 extern void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid, 
 							  int src_pid, int target_pid);
 extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid, int migration_type);
+							  int src_pid, int target_pid, int migration_type,
+							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance);
 extern void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight);
 /*
  * Helpers for converting nanosecond timing to jiffy resolution

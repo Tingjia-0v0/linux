@@ -62,7 +62,8 @@ typedef void (* record_rq_size_t)(int, int);
 typedef void (* sp_record_context_switch_t)(int, int, int, int, int);
 typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
 typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int);
-typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long);
+typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long,
+									   unsigned long, unsigned int, unsigned long);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
@@ -94,7 +95,8 @@ void sp_record_wakeup_migrate(int src_cpu, int target_cpu, int task_pid,
 }
 
 void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid, int migration_type) {
+							  int src_pid, int target_pid, int migration_type,
+							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance) {
 	if (sp_module_record_lb_migrate)
 		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type);
 }
@@ -8184,9 +8186,7 @@ static int detach_tasks(struct lb_env *env)
 			 * scheduler fails to find a good waiting task to
 			 * migrate.
 			 */
-			// if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
-			// 	goto next;
-			if (load > env->imbalance)
+			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
 				goto next;
 
 			env->imbalance -= load;
@@ -8215,7 +8215,10 @@ static int detach_tasks(struct lb_env *env)
 		}
 
 		detach_task(p, env);
-		sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type);
+		if (env->migration_type == migrate_load)
+			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, load, env->sd->nr_balance_failed, env->imbalance + load);
+		else
+			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, 0, 0, env->imbalance);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;
