@@ -64,6 +64,7 @@ typedef void (* sp_record_wakeup_migrate_t)(int, int, int, int, int);
 typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int,
 									   unsigned long, unsigned int, unsigned long);
 typedef void (* sp_record_rq_weight_t)(int, int, int, int, unsigned long, unsigned long);
+typedef void (* sp_record_load_avg_t)(int, unsigned long);
 
 __read_mostly volatile sp_record_activate_task_t module_record_activate_task = NULL;
 __read_mostly volatile record_rq_size_t module_record_rq_size = NULL;
@@ -71,6 +72,7 @@ __read_mostly volatile sp_record_context_switch_t sp_module_record_context_switc
 __read_mostly volatile sp_record_wakeup_migrate_t sp_module_record_wakeup_migrate = NULL;
 __read_mostly volatile sp_record_lb_migrate_t sp_module_record_lb_migrate = NULL;
 __read_mostly volatile sp_record_rq_weight_t sp_module_record_rq_weight = NULL;
+__read_mostly volatile sp_record_load_avg_t sp_module_record_load_avg = NULL;
 
 void record_rq_size(int dst_cpu, int nr_running) {
 	if (module_record_rq_size)
@@ -102,6 +104,11 @@ void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid,
 									task_load, failed_lb, imbalance);
 }
 
+void sp_record_load_avg(int cpu, unsigned long load) {
+	if (sp_module_record_load_avg)
+		(* sp_module_record_load_avg)(cpu, load);
+}
+
 void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight) {
 	if (sp_module_record_rq_weight)
 		(* sp_module_record_rq_weight)(level, enqueue, cpu, task_num, se_weight, cfs_weight);
@@ -131,12 +138,17 @@ void set_sp_module_record_rq_weight(sp_record_rq_weight_t __sp_module_record_rq_
 	sp_module_record_rq_weight = __sp_module_record_rq_weight;
 }
 
+void set_sp_module_record_load_avg(sp_record_load_avg_t __sp_module_record_load_avg) {
+	sp_module_record_load_avg = __sp_module_record_load_avg;
+}
+
 EXPORT_SYMBOL(set_module_record_activate_task);
 EXPORT_SYMBOL(set_module_record_rq_size);
 EXPORT_SYMBOL(set_sp_module_record_context_switch);
 EXPORT_SYMBOL(set_sp_module_record_wakeup_migrate);
 EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
 EXPORT_SYMBOL(set_sp_module_record_rq_weight);
+EXPORT_SYMBOL(set_sp_module_record_load_avg);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -3217,6 +3229,8 @@ enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	cfs_rq->avg.load_avg += se->avg.load_avg;
 	cfs_rq->avg.load_sum += se_weight(se) * se->avg.load_sum;
+	if (!parent_entity(se))
+		sp_record_load_avg(cpu_of(rq_of(cfs_rq)), cfs_rq->avg.load_avg);
 }
 
 static inline void
@@ -3227,6 +3241,8 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/* See update_cfs_rq_load_avg() */
 	cfs_rq->avg.load_sum = max_t(u32, cfs_rq->avg.load_sum,
 					  cfs_rq->avg.load_avg * PELT_MIN_DIVIDER);
+	if (!parent_entity(se))
+		sp_record_load_avg(cpu_of(rq_of(cfs_rq)), cfs_rq->avg.load_avg);
 }
 #else
 static inline void
