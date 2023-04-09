@@ -98,7 +98,8 @@ void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid,
 							  int src_pid, int target_pid, int migration_type,
 							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance) {
 	if (sp_module_record_lb_migrate)
-		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type);
+		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type,
+									task_load, failed_lb, imbalance);
 }
 
 void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight) {
