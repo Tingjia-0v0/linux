@@ -8682,6 +8682,11 @@ static int detach_tasks(struct lb_env *env)
 		}
 
 		detach_task(p, env);
+
+		if (env->migration_type == migrate_load)
+			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, load, env->sd->nr_balance_failed, env->imbalance + load);
+		else
+			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, 0, 0, env->imbalance);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;
@@ -10248,6 +10253,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	 * reduce the group load below the group capacity. Thus we look for
 	 * the minimum possible imbalance.
 	 */
+	sp_record_lb_migrate(0, 0, 0, 0, local->group_type, busiest->group_type, busiest->avg_load, sds->avg_load, local->avg_load);
 	env->migration_type = migrate_load;
 	env->imbalance = min(
 		(busiest->avg_load - sds->avg_load) * busiest->group_capacity,
