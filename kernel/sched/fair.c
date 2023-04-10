@@ -72,27 +72,34 @@
 unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 
-typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int,
-									   unsigned long, unsigned int, unsigned long);
-
+typedef void (* sp_record_lb_migrate_t)(int, int, unsigned long, unsigned long);
+typedef void (* sp_record_imbalance_calc_t)(unsigned long, unsigned long, unsigned long, unsigned long);
 
 __read_mostly volatile sp_record_lb_migrate_t sp_module_record_lb_migrate = NULL;
+__read_mostly volatile sp_record_imbalance_calc_t sp_module_record_imbalance_calc = NULL;
 
-
-void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid, int migration_type,
-							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance) {
+void sp_record_lb_migrate(int src_cpu, int target_cpu, 
+						  unsigned long task_load, unsigned long imbalance) {
 	if (sp_module_record_lb_migrate)
-		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type,
-									task_load, failed_lb, imbalance);
+		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_load, imbalance);
+}
+
+void sp_record_imbalance_calc(unsigned long busiest_avg_load, unsigned long sds_avg_load,
+							  unsigned long local_avg_load, unsigned long imbalance) {
+	if (sp_module_record_imbalance_calc)
+		(*sp_module_record_imbalance_calc)(busiest_avg_load, sds_avg_load, local_avg_load, imbalance);
 }
 
 void set_sp_module_record_lb_migrate(sp_record_lb_migrate_t __sp_module_record_lb_migrate) {
 	sp_module_record_lb_migrate = __sp_module_record_lb_migrate;
 }
 
-EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
+void set_sp_module_record_imbalance_calc(sp_record_imbalance_calc_t __sp_module_record_imbalance_calc) {
+	sp_module_record_imbalance_calc = __sp_module_record_imbalance_calc;
+}
 
+EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
+EXPORT_SYMBOL(set_sp_module_record_imbalance_calc);
 /*
  * The initial- and re-scaling of tunables is configurable
  *
@@ -8705,9 +8712,7 @@ static int detach_tasks(struct lb_env *env)
 		detach_task(p, env);
 
 		if (env->migration_type == migrate_load)
-			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, load, env->sd->nr_balance_failed, env->imbalance + load);
-		else
-			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, 0, 0, env->imbalance);
+			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, load, env->imbalance + load);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;
@@ -10274,12 +10279,12 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	 * reduce the group load below the group capacity. Thus we look for
 	 * the minimum possible imbalance.
 	 */
-	sp_record_lb_migrate(0, 0, 0, 0, local->group_type, busiest->group_type, busiest->avg_load, sds->avg_load, local->avg_load);
 	env->migration_type = migrate_load;
 	env->imbalance = min(
 		(busiest->avg_load - sds->avg_load) * busiest->group_capacity,
 		(sds->avg_load - local->avg_load) * local->group_capacity
 	) / SCHED_CAPACITY_SCALE;
+	sp_record_imbalance_calc(busiest->avg_load, sds->avg_load, local->avg_load, env->imbalance);
 }
 
 /******* find_busiest_group() helpers end here *********************/

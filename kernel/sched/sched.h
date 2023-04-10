@@ -439,9 +439,10 @@ typedef int (*tg_visitor)(struct task_group *, void *);
 
 extern int walk_tg_tree_from(struct task_group *from,
 			     tg_visitor down, tg_visitor up, void *data);
-extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
-							  int src_pid, int target_pid, int migration_type,
-							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance);
+extern void sp_record_lb_migrate(int src_cpu, int target_cpu, 
+						  		 unsigned long task_load, unsigned long imbalance);
+extern void sp_record_imbalance_calc(unsigned long busiest_avg_load, unsigned long sds_avg_load,
+							  	     unsigned long local_avg_load, unsigned long imbalance);
 /*
  * Iterate the full tree, calling @down when first entering a node and @up when
  * leaving it for the final time.
