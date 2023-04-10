@@ -8193,7 +8193,7 @@ static int detach_tasks(struct lb_env *env)
 			 * detaching up to loop_max tasks.
 			 */
 			load = max_t(unsigned long, task_h_load(p), 1);
-
+			
 			if (sched_feat(LB_MIN) &&
 			    load < 16 && !env->sd->nr_balance_failed)
 				goto next;
@@ -8206,7 +8206,7 @@ static int detach_tasks(struct lb_env *env)
 			 */
 			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
 				goto next;
-
+			sp_record_task_load(p->pid, p->se.load_avg, )
 			env->imbalance -= load;
 			break;
 
