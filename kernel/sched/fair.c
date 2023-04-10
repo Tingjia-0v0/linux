@@ -4556,6 +4556,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	 *   - Add its new weight to cfs_rq->load.weight
 	 */
 	update_load_avg(cfs_rq, se, UPDATE_TG | DO_ATTACH);
+	// record se->avg, cfs_rq->avg
 	se_update_runnable(se);
 	update_cfs_group(se);
 	account_entity_enqueue(cfs_rq, se);
@@ -9800,6 +9801,10 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	 */
 	env->migration_type = migrate_load;
 	sp_record_lb_migrate(0, 0, 0, 0, 0, 0, busiest->avg_load, sds->avg_load, local->avg_load);
+//	         137027378340 nsecs LB    0    0    0    0    0    0 142  104 111
+//	          137027381724 nsecs LB   18   13 1839 1820 1851    0 90    2 38
+
+
 	env->imbalance = min(
 		(busiest->avg_load - sds->avg_load) * busiest->group_capacity,
 		(sds->avg_load - local->avg_load) * local->group_capacity
