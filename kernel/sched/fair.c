@@ -9799,7 +9799,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	 * the minimum possible imbalance.
 	 */
 	env->migration_type = migrate_load;
-	sp_record_lb_migrate(0, 0, 0, 0, 0, busiest->avg_load, sds->avg_load, local->avg_load);
+	sp_record_lb_migrate(0, 0, 0, 0, 0, 0, busiest->avg_load, sds->avg_load, local->avg_load);
 	env->imbalance = min(
 		(busiest->avg_load - sds->avg_load) * busiest->group_capacity,
 		(sds->avg_load - local->avg_load) * local->group_capacity
