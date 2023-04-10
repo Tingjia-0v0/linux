@@ -72,6 +72,27 @@
 unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 
+typedef void (* sp_record_lb_migrate_t)(int, int, int, int, int, int,
+									   unsigned long, unsigned int, unsigned long);
+
+
+__read_mostly volatile sp_record_lb_migrate_t sp_module_record_lb_migrate = NULL;
+
+
+void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid, 
+							  int src_pid, int target_pid, int migration_type,
+							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance) {
+	if (sp_module_record_lb_migrate)
+		(*sp_module_record_lb_migrate)(src_cpu, target_cpu, task_pid, src_pid, target_pid, migration_type,
+									task_load, failed_lb, imbalance);
+}
+
+void set_sp_module_record_lb_migrate(sp_record_lb_migrate_t __sp_module_record_lb_migrate) {
+	sp_module_record_lb_migrate = __sp_module_record_lb_migrate;
+}
+
+EXPORT_SYMBOL(set_sp_module_record_lb_migrate);
+
 /*
  * The initial- and re-scaling of tunables is configurable
  *
