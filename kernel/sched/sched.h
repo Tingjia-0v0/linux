@@ -130,6 +130,7 @@ extern void sp_record_lb_migrate(int src_cpu, int target_cpu, int task_pid,
 							  unsigned long task_load, unsigned int failed_lb, unsigned long imbalance);
 extern void sp_record_rq_weight(int level, int enqueue, int cpu, int task_num, unsigned long se_weight, unsigned long cfs_weight);
 extern void sp_record_load_avg(int cpu, unsigned long load);
+extern void sp_record_group_load(int cpu, unsigned long weight, unsigned long load, long tg_weight, unsigned long contrib_load);
 
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
