@@ -8213,6 +8213,8 @@ static int detach_tasks(struct lb_env *env)
 			    load < 16 && !env->sd->nr_balance_failed)
 				goto next;
 
+			sp_record_lb_migrate(100, 100, 100, 100, 100, 100, p->pid, p->se.avg.load_avg, cfs_rq_load_avg((task_cfs_rq(p)));
+
 			/*
 			 * Make sure that we don't migrate too much load.
 			 * Nevertheless, let relax the constraint if
@@ -8221,7 +8223,6 @@ static int detach_tasks(struct lb_env *env)
 			 */
 			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
 				goto next;
-			sp_record_task_load(p->pid, p->se.load_avg, )
 			env->imbalance -= load;
 			break;
 
