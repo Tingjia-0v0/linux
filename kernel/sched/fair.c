@@ -9781,6 +9781,9 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 		return;
 	}
 
+	sp_record_lb_migrate(200, 200, 200, 200, cpumask_first(sched_group_span(sds->local)), 
+						 local->group_util, local->group_runnable, local->group_capacity
+						 local->group_type);
 	/*
 	 * Local is fully busy but has to take more load to relieve the
 	 * busiest group
@@ -9805,6 +9808,11 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 
 		sds->avg_load = (sds->total_load * SCHED_CAPACITY_SCALE) /
 				sds->total_capacity;
+
+		if (local->avg_load >= sds->avg_load) {
+			env->imbalance = 0;
+			return;
+		}
 	}
 
 	/*
