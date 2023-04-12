@@ -9782,7 +9782,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	}
 
 	sp_record_lb_migrate(200, 200, 200, 200, cpumask_first(sched_group_span(sds->local)), 
-						 local->group_util, local->group_runnable, local->group_capacity
+						 local->group_util, local->group_runnable, local->group_capacity,
 						 local->group_type);
 	/*
 	 * Local is fully busy but has to take more load to relieve the
