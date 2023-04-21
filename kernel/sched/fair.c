@@ -8097,7 +8097,7 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		}
 		return 1;
 	}
-
+	sp_record_lb_migrate(600, 600, 600, 600, 600, 600, 600, 600, p->pid);
 	schedstat_inc(p->stats.nr_failed_migrations_hot);
 	return 0;
 }
@@ -8213,7 +8213,7 @@ static int detach_tasks(struct lb_env *env)
 			    load < 16 && !env->sd->nr_balance_failed)
 				goto next;
 
-			sp_record_lb_migrate(100, 100, 100, 100, 100, 100, p->pid, p->se.avg.load_avg, cfs_rq_load_avg(task_cfs_rq(p)));
+			sp_record_lb_migrate(100, 100, 100, 100, 100, load, p->pid, p->se.avg.load_avg, cfs_rq_load_avg(task_cfs_rq(p)));
 
 			/*
 			 * Make sure that we don't migrate too much load.
@@ -8250,9 +8250,9 @@ static int detach_tasks(struct lb_env *env)
 
 		detach_task(p, env);
 		if (env->migration_type == migrate_load)
-			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, load, env->sd->nr_balance_failed, env->imbalance + load);
+			sp_record_lb_migrate(env->migration_type, env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, load, env->sd->nr_balance_failed, env->imbalance + load);
 		else
-			sp_record_lb_migrate(env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, env->migration_type, 0, 0, env->imbalance);
+			sp_record_lb_migrate(env->migration_type, env->src_cpu, env->dst_cpu, p->pid, env->src_rq->curr->pid, env->dst_rq->curr->pid, 0, 0, env->imbalance);
 		list_add(&p->se.group_node, &env->tasks);
 
 		detached++;
@@ -9824,10 +9824,7 @@ static inline void calculate_imbalance(struct lb_env *env, struct sd_lb_stats *s
 	 * the minimum possible imbalance.
 	 */
 	env->migration_type = migrate_load;
-	sp_record_lb_migrate(0, 0, 0, 0, 0, 0, busiest->avg_load, sds->avg_load, local->avg_load);
-//	         137027378340 nsecs LB    0    0    0    0    0    0 142  104 111
-//	          137027381724 nsecs LB   18   13 1839 1820 1851    0 90    2 38
-
+	sp_record_lb_migrate(300, 300, 300, 300, 300, busiest->group_type, busiest->avg_load, sds->avg_load, local->avg_load);
 
 	env->imbalance = min(
 		(busiest->avg_load - sds->avg_load) * busiest->group_capacity,
@@ -10283,6 +10280,7 @@ redo:
 		schedstat_inc(sd->lb_nobusyq[idle]);
 		goto out_balanced;
 	}
+	sp_record_lb_migrate(500, 500, 500, 500, 500, 500, 500, 500, cpu_of(busiest));
 
 	BUG_ON(busiest == env.dst_rq);
 
@@ -10708,6 +10706,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 		}
 
 		if (time_after_eq(jiffies, sd->last_balance + interval)) {
+			sp_record_lb_migrate(700, 700, 700, 700, 700, 700, cpu, jiffies_to_msecs(interval), sd->span_weight);
 			if (load_balance(cpu, rq, sd, idle, &continue_balancing)) {
 				/*
 				 * The LBF_DST_PINNED logic could have changed
