@@ -2110,6 +2110,7 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 		sched_mm_cid_migrate_to(rq, p);
 
 	enqueue_task(rq, p, flags);
+	sp_record_task_act(0, rq->cpu, p->pid);
 
 	p->on_rq = TASK_ON_RQ_QUEUED;
 }
@@ -2119,6 +2120,7 @@ void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 	p->on_rq = (flags & DEQUEUE_SLEEP) ? 0 : TASK_ON_RQ_MIGRATING;
 
 	dequeue_task(rq, p, flags);
+	sp_record_task_act(1, rq->cpu, p->pid);
 }
 
 static inline int __normal_prio(int policy, int rt_prio, int nice)
@@ -9905,6 +9907,8 @@ void __init sched_init(void)
 
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		init_cfs_bandwidth(&root_task_group.cfs_bandwidth);
+
+		root_task_group.id = 0;
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 #ifdef CONFIG_RT_GROUP_SCHED
 		root_task_group.rt_se = (struct sched_rt_entity **)ptr;
@@ -10363,6 +10367,7 @@ struct task_group *sched_create_group(struct task_group *parent)
 
 	alloc_uclamp_sched_group(tg, parent);
 
+	tg->id = list_count_nodes(&task_groups) + 1;
 	return tg;
 
 err:

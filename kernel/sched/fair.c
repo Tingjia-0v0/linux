@@ -56,6 +56,72 @@
 #include "stats.h"
 #include "autogroup.h"
 
+#include <linux/module.h>
+
+typedef void (* sp_record_task_act_t)(int, int, int);
+typedef void (* sp_record_ld_t)(int, int, int, long, unsigned long);
+typedef void (* sp_record_wt_t)(int, int, int, long, long);
+typedef void (* sp_record_h_ld_t)(int, int, int, unsigned long, unsigned long, unsigned long);
+typedef void (* sp_record_grp_share_t)(int, int, unsigned long, unsigned long, unsigned long);
+
+__read_mostly volatile sp_record_task_act_t sp_module_record_task_act = NULL;
+__read_mostly volatile sp_record_ld_t		sp_module_record_ld = NULL;
+__read_mostly volatile sp_record_wt_t		sp_module_record_wt = NULL;
+__read_mostly volatile sp_record_h_ld_t		sp_module_record_h_ld = NULL;
+__read_mostly volatile sp_record_grp_share_t sp_module_record_grp_share = NULL;
+
+void sp_record_task_act(int option, int cpu, int pid) {
+	if (sp_module_record_task_act)
+		(* sp_module_record_task_act)(option, cpu, pid);
+}
+// Option: 0 task; 1 group se; 2 cfs_rq; 3 task_group
+void sp_record_ld(int option, int cpu, int id, long weight, unsigned long ld) {
+	if (* sp_module_record_ld)
+		(* sp_module_record_ld)(option, cpu, id, weight, ld);
+}
+// Option: 0, 1, 2 add/sub/set cfs_rq
+//		   3, 4, 5 add/sub/set se
+//		   6, 7, 8 add/sub/set task
+void sp_record_wt(int option, int cpu, int id, long old_weight, long delta) {
+	if (* sp_module_record_wt)
+		(* sp_module_record_wt)(option, cpu, id, old_weight, delta);
+}
+
+void sp_record_h_ld(int option, int cpu, int id, 
+					unsigned long up_h_load, unsigned long up_load, 
+					unsigned long se_load) {
+	if (* sp_module_record_h_ld)
+		(* sp_module_record_h_ld)(option, cpu, id, up_h_load, up_load, se_load);
+}
+
+void sp_record_grp_share(int cpu, int id, unsigned long tg_shares, 
+						 unsigned long this_load, unsigned long all_load) {
+	if (* sp_module_record_grp_share)
+		(* sp_module_record_grp_share)(cpu, id, tg_shares, this_load, all_load);
+}
+
+void set_module_record_task_act(sp_record_task_act_t __sp_module_record_task_act) {
+	sp_module_record_task_act = __sp_module_record_task_act;
+}
+void set_module_record_ld(sp_record_ld_t __sp_module_record_ld) {
+	sp_module_record_ld = __sp_module_record_ld;
+}
+void set_module_record_wt(sp_record_wt_t __sp_module_record_wt) {
+	sp_module_record_wt = __sp_module_record_wt;
+}
+void set_module_record_h_ld(sp_record_h_ld_t __sp_module_record_h_load) {
+	sp_module_record_h_ld = __sp_module_record_h_load;
+}
+void set_module_record_grp_share(sp_record_grp_share_t __sp_module_record_grp_share) {
+	sp_module_record_grp_share = __sp_module_record_grp_share;
+}
+
+EXPORT_SYMBOL(set_module_record_task_act);
+EXPORT_SYMBOL(set_module_record_ld);
+EXPORT_SYMBOL(set_module_record_wt);
+EXPORT_SYMBOL(set_module_record_h_ld);
+EXPORT_SYMBOL(set_module_record_grp_share);
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -760,7 +826,9 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 		if (unlikely(!se->on_rq)) {
 			lw = qcfs_rq->load;
-
+			sp_record_wt(0, rq_of(qcfs_rq)->cpu, qcfs_rq->tg->id, 
+						 scale_load_down(lw.weight), 
+						 scale_load_down(se->load.weight));
 			update_load_add(&lw, se->load.weight);
 			load = &lw;
 		}
@@ -3271,6 +3339,9 @@ static inline void update_scan_period(struct task_struct *p, int new_cpu)
 static void
 account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	sp_record_wt(0, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+				 scale_load_down(cfs_rq->load.weight), 
+				 scale_load_down(se->load.weight));
 	update_load_add(&cfs_rq->load, se->load.weight);
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
@@ -3288,6 +3359,9 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static void
 account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	sp_record_wt(1, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+				 scale_load_down(cfs_rq->load.weight), 
+				 scale_load_down(se->load.weight));
 	update_load_sub(&cfs_rq->load, se->load.weight);
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
@@ -3354,6 +3428,8 @@ enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	cfs_rq->avg.load_avg += se->avg.load_avg;
 	cfs_rq->avg.load_sum += se_weight(se) * se->avg.load_sum;
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
+
 }
 
 static inline void
@@ -3364,6 +3440,8 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/* See update_cfs_rq_load_avg() */
 	cfs_rq->avg.load_sum = max_t(u32, cfs_rq->avg.load_sum,
 					  cfs_rq->avg.load_avg * PELT_MIN_DIVIDER);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
+
 }
 #else
 static inline void
@@ -3379,10 +3457,21 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		/* commit outstanding execution time */
 		if (cfs_rq->curr == se)
 			update_curr(cfs_rq);
+		sp_record_wt(1, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+					 scale_load_down(cfs_rq->load.weight), 
+					 scale_load_down(se->load.weight));
 		update_load_sub(&cfs_rq->load, se->load.weight);
 	}
 	dequeue_load_avg(cfs_rq, se);
 
+	if (entity_is_task(se))
+		sp_record_wt(8, rq_of(cfs_rq)->cpu, task_of(se)->pid,
+					 scale_load_down(se->load.weight), 
+					 scale_load_down(weight));
+	else
+		sp_record_wt(5, rq_of(cfs_rq)->cpu, se->my_q->tg->id, 
+					 scale_load_down(se->load.weight), 
+					 scale_load_down(weight));
 	update_load_set(&se->load, weight);
 
 #ifdef CONFIG_SMP
@@ -3390,13 +3479,22 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		u32 divider = get_pelt_divider(&se->avg);
 
 		se->avg.load_avg = div_u64(se_weight(se) * se->avg.load_sum, divider);
+		
+		if (entity_is_task(se))
+			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, se_weight(se), (&se->avg)->load_avg);
+		else
+			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se_weight(se), (&se->avg)->load_avg);
+
 	} while (0);
 #endif
 
 	enqueue_load_avg(cfs_rq, se);
-	if (se->on_rq)
+	if (se->on_rq) {
+		sp_record_wt(0, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+					 scale_load_down(cfs_rq->load.weight), 
+					 scale_load_down(se->load.weight));
 		update_load_add(&cfs_rq->load, se->load.weight);
-
+	}
 }
 
 void reweight_task(struct task_struct *p, int prio)
@@ -3505,7 +3603,8 @@ static long calc_group_shares(struct cfs_rq *cfs_rq)
 	shares = (tg_shares * load);
 	if (tg_weight)
 		shares /= tg_weight;
-
+	sp_record_grp_share(rq_of(cfs_rq)->cpu, cfs_rq->tg->id, tg_shares, load, tg_weight);
+	
 	/*
 	 * MIN_SHARES has to be unscaled here to support per-CPU partitioning
 	 * of a group with small tg->shares value. It is a floor value which is
@@ -3673,6 +3772,8 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 		return;
 
 	if (abs(delta) > cfs_rq->tg_load_avg_contrib / 64) {
+		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+					 delta, atomic_long_read(&cfs_rq->tg->load_avg));
 		atomic_long_add(delta, &cfs_rq->tg->load_avg);
 		cfs_rq->tg_load_avg_contrib = cfs_rq->avg.load_avg;
 	}
@@ -3899,7 +4000,14 @@ update_tg_cfs_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq
 
 	se->avg.load_sum = runnable_sum;
 	se->avg.load_avg = load_avg;
+
+	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se_weight(se), se->avg.load_avg);
+
 	add_positive(&cfs_rq->avg.load_avg, delta_avg);
+
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+				 scale_load_down(cfs_rq->load.weight), cfs_rq->avg.load_avg);
+
 	add_positive(&cfs_rq->avg.load_sum, delta_sum);
 	/* See update_cfs_rq_load_avg() */
 	cfs_rq->avg.load_sum = max_t(u32, cfs_rq->avg.load_sum,
@@ -8970,16 +9078,22 @@ static void update_cfs_rq_h_load(struct cfs_rq *cfs_rq)
 			break;
 	}
 
+	// If it's root tg
 	if (!se) {
 		cfs_rq->h_load = cfs_rq_load_avg(cfs_rq);
 		cfs_rq->last_h_load_update = now;
+		sp_record_h_ld(0, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+					   cfs_rq->h_load, cfs_rq_load_avg(cfs_rq), 0);
 	}
 
 	while ((se = READ_ONCE(cfs_rq->h_load_next)) != NULL) {
 		load = cfs_rq->h_load;
 		load = div64_ul(load * se->avg.load_avg,
 			cfs_rq_load_avg(cfs_rq) + 1);
-		cfs_rq = group_cfs_rq(se);
+		sp_record_h_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, 
+					   cfs_rq->h_load, cfs_rq_load_avg(cfs_rq), se->avg.load_avg);
+
+		cfs_rq = group_cfs_rq(se);		
 		cfs_rq->h_load = load;
 		cfs_rq->last_h_load_update = now;
 	}
@@ -8990,6 +9104,8 @@ static unsigned long task_h_load(struct task_struct *p)
 	struct cfs_rq *cfs_rq = task_cfs_rq(p);
 
 	update_cfs_rq_h_load(cfs_rq);
+	sp_record_h_ld(2, rq_of(cfs_rq)->cpu, p->pid, 
+				   cfs_rq->h_load, cfs_rq_load_avg(cfs_rq), p->se.avg.load_avg);
 	return div64_ul(p->se.avg.load_avg * cfs_rq->h_load,
 			cfs_rq_load_avg(cfs_rq) + 1);
 }
@@ -10436,8 +10552,9 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 		 * conservative.
 		 */
 		if (100 * busiest->avg_load <=
-				env->sd->imbalance_pct * local->avg_load)
+				env->sd->imbalance_pct * local->avg_load) {
 			goto out_balanced;
+		}
 	}
 
 	/* Try to move all excess tasks to child's sibling domain */
