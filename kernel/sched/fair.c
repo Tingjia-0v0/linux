@@ -63,12 +63,14 @@ typedef void (* sp_record_ld_t)(int, int, int, long, unsigned long);
 typedef void (* sp_record_wt_t)(int, int, int, long, long);
 typedef void (* sp_record_h_ld_t)(int, int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_grp_share_t)(int, int, unsigned long, unsigned long, unsigned long);
+typedef void (* sp_record_create_tg_t)(int);
 
 __read_mostly volatile sp_record_task_act_t sp_module_record_task_act = NULL;
 __read_mostly volatile sp_record_ld_t		sp_module_record_ld = NULL;
 __read_mostly volatile sp_record_wt_t		sp_module_record_wt = NULL;
 __read_mostly volatile sp_record_h_ld_t		sp_module_record_h_ld = NULL;
-__read_mostly volatile sp_record_grp_share_t sp_module_record_grp_share = NULL;
+__read_mostly volatile sp_record_grp_share_t	sp_module_record_grp_share = NULL;
+__read_mostly volatile sp_record_create_tg_t	sp_module_record_create_tg = NULL;
 
 void sp_record_task_act(int option, int cpu, int pid) {
 	if (sp_module_record_task_act)
@@ -100,6 +102,11 @@ void sp_record_grp_share(int cpu, int id, unsigned long tg_shares,
 		(* sp_module_record_grp_share)(cpu, id, tg_shares, this_load, all_load);
 }
 
+void sp_record_create_grp(int gid) {
+	if (* sp_module_record_create_tg)
+		(* sp_module_record_create_tg)(gid);
+}
+
 void set_module_record_task_act(sp_record_task_act_t __sp_module_record_task_act) {
 	sp_module_record_task_act = __sp_module_record_task_act;
 }
@@ -115,13 +122,16 @@ void set_module_record_h_ld(sp_record_h_ld_t __sp_module_record_h_load) {
 void set_module_record_grp_share(sp_record_grp_share_t __sp_module_record_grp_share) {
 	sp_module_record_grp_share = __sp_module_record_grp_share;
 }
+void set_module_record_create_tg(sp_record_create_tg_t __sp_module_record_create_tg) {
+	sp_module_record_create_tg = __sp_module_record_create_tg;
+}
 
 EXPORT_SYMBOL(set_module_record_task_act);
 EXPORT_SYMBOL(set_module_record_ld);
 EXPORT_SYMBOL(set_module_record_wt);
 EXPORT_SYMBOL(set_module_record_h_ld);
 EXPORT_SYMBOL(set_module_record_grp_share);
-
+EXPORT_SYMBOL(set_module_record_create_tg);
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *

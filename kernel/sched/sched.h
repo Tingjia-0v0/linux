@@ -112,7 +112,8 @@ extern void sp_record_h_ld(int option, int cpu, int id,
 					unsigned long se_load);
 extern void sp_record_grp_share(int cpu, int id, unsigned long tg_shares, 
 						 unsigned long this_load, unsigned long all_load);
-						 
+extern void sp_record_create_grp(int gid);
+					 
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;

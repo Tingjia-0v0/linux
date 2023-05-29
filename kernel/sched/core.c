@@ -10368,6 +10368,7 @@ struct task_group *sched_create_group(struct task_group *parent)
 	alloc_uclamp_sched_group(tg, parent);
 
 	tg->id = list_count_nodes(&task_groups) + 1;
+	sp_record_create_tg(tg->id);
 	return tg;
 
 err:
