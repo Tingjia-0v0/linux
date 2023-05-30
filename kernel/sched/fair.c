@@ -102,7 +102,7 @@ void sp_record_grp_share(int cpu, int id, unsigned long tg_shares,
 		(* sp_module_record_grp_share)(cpu, id, tg_shares, this_load, all_load);
 }
 
-void sp_record_create_grp(int gid) {
+void sp_record_create_tg(int gid) {
 	if (* sp_module_record_create_tg)
 		(* sp_module_record_create_tg)(gid);
 }
