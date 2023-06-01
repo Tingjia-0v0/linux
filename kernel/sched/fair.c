@@ -3496,7 +3496,7 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		}
 		else {
 			sp_record_wt(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, scale_load_down(se->load.weight));
-			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg)
+			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg);
 		}
 		sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, scale_load_down(cfs_rq->load.weight));
 		sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
