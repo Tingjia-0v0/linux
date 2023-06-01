@@ -298,9 +298,9 @@ int __update_load_avg_blocked_se(u64 now, struct sched_entity *se)
 		___update_load_avg(&se->avg, se_weight(se));
 
 		if (entity_is_task(se))
-			sp_record_ld(0, task_cpu(task_of(se)), task_of(se)->pid, se_weight(se), (&se->avg)->load_avg);
+			sp_record_ld(0, task_cpu(task_of(se)), task_of(se)->pid, (&se->avg)->load_avg);
 		else
-			sp_record_ld(1, rq_of(se->my_q)->cpu, se->my_q->tg->id, se_weight(se), (&se->avg)->load_avg);
+			sp_record_ld(1, rq_of(se->my_q)->cpu, se->my_q->tg->id, (&se->avg)->load_avg);
 
 		trace_pelt_se_tp(se);
 		return 1;
@@ -317,9 +317,9 @@ int __update_load_avg_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se
 		___update_load_avg(&se->avg, se_weight(se));
 
 		if (entity_is_task(se))
-			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, se_weight(se), (&se->avg)->load_avg);
+			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg);
 		else
-			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se_weight(se), (&se->avg)->load_avg);
+			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg);
 
 		cfs_se_util_change(&se->avg);
 		trace_pelt_se_tp(se);
@@ -338,8 +338,7 @@ int __update_load_avg_cfs_rq(u64 now, struct cfs_rq *cfs_rq)
 
 		___update_load_avg(&cfs_rq->avg, 1);
 		
-		sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-					 scale_load_down(cfs_rq->load.weight), (&cfs_rq->avg)->load_avg);
+		sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, (&cfs_rq->avg)->load_avg);
 
 		trace_pelt_cfs_tp(cfs_rq);
 		return 1;

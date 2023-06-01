@@ -59,8 +59,8 @@
 #include <linux/module.h>
 
 typedef void (* sp_record_task_act_t)(int, int, int);
-typedef void (* sp_record_ld_t)(int, int, int, long, unsigned long);
-typedef void (* sp_record_wt_t)(int, int, int, long, long);
+typedef void (* sp_record_ld_t)(int, int, int, unsigned long);
+typedef void (* sp_record_wt_t)(int, int, int, long);
 typedef void (* sp_record_h_ld_t)(int, int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_grp_share_t)(int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_create_tg_t)(int);
@@ -77,16 +77,16 @@ void sp_record_task_act(int option, int cpu, int pid) {
 		(* sp_module_record_task_act)(option, cpu, pid);
 }
 // Option: 0 task; 1 group se; 2 cfs_rq; 3 task_group
-void sp_record_ld(int option, int cpu, int id, long weight, unsigned long ld) {
+void sp_record_ld(int option, int cpu, int id, unsigned long ld) {
 	if (* sp_module_record_ld)
-		(* sp_module_record_ld)(option, cpu, id, weight, ld);
+		(* sp_module_record_ld)(option, cpu, id, ld);
 }
-// Option: 0, 1, 2 add/sub/set cfs_rq
-//		   3, 4, 5 add/sub/set se
-//		   6, 7, 8 add/sub/set task
-void sp_record_wt(int option, int cpu, int id, long old_weight, long delta) {
+// Option: 2, add/sub/set cfs_rq
+//		   1, add/sub/set se
+//		   0, add/sub/set task
+void sp_record_wt(int option, int cpu, int id, long weight) {
 	if (* sp_module_record_wt)
-		(* sp_module_record_wt)(option, cpu, id, old_weight, delta);
+		(* sp_module_record_wt)(option, cpu, id, weight);
 }
 
 void sp_record_h_ld(int option, int cpu, int id, 
@@ -836,10 +836,10 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 		if (unlikely(!se->on_rq)) {
 			lw = qcfs_rq->load;
-			sp_record_wt(0, rq_of(qcfs_rq)->cpu, qcfs_rq->tg->id, 
-						 scale_load_down(lw.weight), 
-						 scale_load_down(se->load.weight));
+			
 			update_load_add(&lw, se->load.weight);
+			sp_record_wt(2, rq_of(qcfs_rq)->cpu, qcfs_rq->tg->id, 
+						 scale_load_down(lw.weight));
 			load = &lw;
 		}
 		slice = __calc_delta(slice, se->load.weight, load);
@@ -3349,10 +3349,9 @@ static inline void update_scan_period(struct task_struct *p, int new_cpu)
 static void
 account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	sp_record_wt(0, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-				 scale_load_down(cfs_rq->load.weight), 
-				 scale_load_down(se->load.weight));
 	update_load_add(&cfs_rq->load, se->load.weight);
+	sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+				 scale_load_down(cfs_rq->load.weight));
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
 		struct rq *rq = rq_of(cfs_rq);
@@ -3368,11 +3367,10 @@ account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 static void
 account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
-{
-	sp_record_wt(1, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-				 scale_load_down(cfs_rq->load.weight), 
-				 scale_load_down(se->load.weight));
+{	
 	update_load_sub(&cfs_rq->load, se->load.weight);
+	sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
+				 scale_load_down(cfs_rq->load.weight));
 #ifdef CONFIG_SMP
 	if (entity_is_task(se)) {
 		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
@@ -3438,7 +3436,7 @@ enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	cfs_rq->avg.load_avg += se->avg.load_avg;
 	cfs_rq->avg.load_sum += se_weight(se) * se->avg.load_sum;
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
+	// sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
 
 }
 
@@ -3450,7 +3448,7 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/* See update_cfs_rq_load_avg() */
 	cfs_rq->avg.load_sum = max_t(u32, cfs_rq->avg.load_sum,
 					  cfs_rq->avg.load_avg * PELT_MIN_DIVIDER);
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
+	// sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->load.weight, cfs_rq->avg.load_avg);
 
 }
 #else
@@ -3463,25 +3461,18 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
 static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 			    unsigned long weight)
 {
+	int load_change = 0;
+	if (se->load.weight != weight) {
+		load_change = 1;
+	}
 	if (se->on_rq) {
 		/* commit outstanding execution time */
 		if (cfs_rq->curr == se)
 			update_curr(cfs_rq);
-		sp_record_wt(1, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-					 scale_load_down(cfs_rq->load.weight), 
-					 scale_load_down(se->load.weight));
 		update_load_sub(&cfs_rq->load, se->load.weight);
 	}
 	dequeue_load_avg(cfs_rq, se);
 
-	if (entity_is_task(se))
-		sp_record_wt(8, rq_of(cfs_rq)->cpu, task_of(se)->pid,
-					 scale_load_down(se->load.weight), 
-					 scale_load_down(weight));
-	else
-		sp_record_wt(5, rq_of(cfs_rq)->cpu, se->my_q->tg->id, 
-					 scale_load_down(se->load.weight), 
-					 scale_load_down(weight));
 	update_load_set(&se->load, weight);
 
 #ifdef CONFIG_SMP
@@ -3490,20 +3481,25 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 
 		se->avg.load_avg = div_u64(se_weight(se) * se->avg.load_sum, divider);
 		
-		if (entity_is_task(se))
-			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, se_weight(se), (&se->avg)->load_avg);
-		else
-			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se_weight(se), (&se->avg)->load_avg);
-
 	} while (0);
 #endif
 
 	enqueue_load_avg(cfs_rq, se);
 	if (se->on_rq) {
-		sp_record_wt(0, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-					 scale_load_down(cfs_rq->load.weight), 
-					 scale_load_down(se->load.weight));
 		update_load_add(&cfs_rq->load, se->load.weight);
+	}
+	if (load_change) {
+		if (entity_is_task(se)) {
+			sp_record_wt(0, rq_of(cfs_rq)->cpu, task_of(se)->pid,
+						scale_load_down(se->load.weight));
+			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg);
+		}
+		else {
+			sp_record_wt(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, scale_load_down(se->load.weight));
+			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg)
+		}
+		sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, scale_load_down(cfs_rq->load.weight));
+		sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 	}
 }
 
@@ -3782,10 +3778,9 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 		return;
 
 	if (abs(delta) > cfs_rq->tg_load_avg_contrib / 64) {
-		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-					 delta, atomic_long_read(&cfs_rq->tg->load_avg));
 		atomic_long_add(delta, &cfs_rq->tg->load_avg);
 		cfs_rq->tg_load_avg_contrib = cfs_rq->avg.load_avg;
+		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, atomic_long_read(&cfs_rq->tg->load_avg));
 	}
 }
 
@@ -4011,12 +4006,11 @@ update_tg_cfs_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq
 	se->avg.load_sum = runnable_sum;
 	se->avg.load_avg = load_avg;
 
-	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se_weight(se), se->avg.load_avg);
+	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se->avg.load_avg);
 
 	add_positive(&cfs_rq->avg.load_avg, delta_avg);
 
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, 
-				 scale_load_down(cfs_rq->load.weight), cfs_rq->avg.load_avg);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 
 	add_positive(&cfs_rq->avg.load_sum, delta_sum);
 	/* See update_cfs_rq_load_avg() */
@@ -4316,6 +4310,7 @@ static void attach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 }
 
 /**
@@ -4346,6 +4341,7 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 }
 
 /*
