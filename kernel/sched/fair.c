@@ -3499,7 +3499,7 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	// if (load_change) {
 	if (entity_is_task(se)) {
 		sp_record_wt(0, rq_of(cfs_rq)->cpu, task_of(se)->pid,
-					scale_load_down(se->load.weight), 0);
+					scale_load_down(se->load.weight));
 		sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg, se->on_rq);
 	}
 	else {
