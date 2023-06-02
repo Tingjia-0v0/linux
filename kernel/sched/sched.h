@@ -105,7 +105,7 @@ struct cpuidle_state;
 #define TASK_ON_RQ_MIGRATING	2
 
 extern void sp_record_task_act(int option, int cpu, int pid);
-extern void sp_record_ld(int option, int cpu, int id, unsigned long ld);
+extern void sp_record_ld(int option, int cpu, int id, unsigned long ld, int on_rq);
 extern void sp_record_wt(int option, int cpu, int id, long weight);
 extern void sp_record_h_ld(int option, int cpu, int id, 
 					unsigned long up_h_load, unsigned long up_load, 
@@ -113,7 +113,7 @@ extern void sp_record_h_ld(int option, int cpu, int id,
 extern void sp_record_grp_share(int cpu, int id, unsigned long tg_shares, 
 						 unsigned long this_load, unsigned long all_load);
 extern void sp_record_create_tg(int gid);
-					 
+extern void sp_record_rb(int step, int cpu, int weight);
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;

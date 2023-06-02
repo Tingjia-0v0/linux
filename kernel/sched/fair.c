@@ -59,11 +59,12 @@
 #include <linux/module.h>
 
 typedef void (* sp_record_task_act_t)(int, int, int);
-typedef void (* sp_record_ld_t)(int, int, int, unsigned long);
+typedef void (* sp_record_ld_t)(int, int, int, unsigned long, int);
 typedef void (* sp_record_wt_t)(int, int, int, long);
 typedef void (* sp_record_h_ld_t)(int, int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_grp_share_t)(int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_create_tg_t)(int);
+typedef void (* sp_record_rb_t)(int, int, int);
 
 __read_mostly volatile sp_record_task_act_t sp_module_record_task_act = NULL;
 __read_mostly volatile sp_record_ld_t		sp_module_record_ld = NULL;
@@ -71,15 +72,16 @@ __read_mostly volatile sp_record_wt_t		sp_module_record_wt = NULL;
 __read_mostly volatile sp_record_h_ld_t		sp_module_record_h_ld = NULL;
 __read_mostly volatile sp_record_grp_share_t	sp_module_record_grp_share = NULL;
 __read_mostly volatile sp_record_create_tg_t	sp_module_record_create_tg = NULL;
+__read_mostly volatile sp_record_rb_t			sp_module_record_rb = NULL;
 
 void sp_record_task_act(int option, int cpu, int pid) {
 	if (sp_module_record_task_act)
 		(* sp_module_record_task_act)(option, cpu, pid);
 }
 // Option: 0 task; 1 group se; 2 cfs_rq; 3 task_group
-void sp_record_ld(int option, int cpu, int id, unsigned long ld) {
+void sp_record_ld(int option, int cpu, int id, unsigned long ld, int on_rq) {
 	if (* sp_module_record_ld)
-		(* sp_module_record_ld)(option, cpu, id, ld);
+		(* sp_module_record_ld)(option, cpu, id, ld, on_rq);
 }
 // Option: 2, add/sub/set cfs_rq
 //		   1, add/sub/set se
@@ -107,6 +109,11 @@ void sp_record_create_tg(int gid) {
 		(* sp_module_record_create_tg)(gid);
 }
 
+void sp_record_rb(int step, int cpu, int weight) {
+	if (* sp_module_record_rb)
+		(* sp_module_record_rb)(step, cpu, weight);
+}
+
 void set_module_record_task_act(sp_record_task_act_t __sp_module_record_task_act) {
 	sp_module_record_task_act = __sp_module_record_task_act;
 }
@@ -125,6 +132,9 @@ void set_module_record_grp_share(sp_record_grp_share_t __sp_module_record_grp_sh
 void set_module_record_create_tg(sp_record_create_tg_t __sp_module_record_create_tg) {
 	sp_module_record_create_tg = __sp_module_record_create_tg;
 }
+void set_module_record_rb(sp_record_rb_t __sp_module_record_rb) {
+	sp_module_record_rb = __sp_module_record_rb;
+}
 
 EXPORT_SYMBOL(set_module_record_task_act);
 EXPORT_SYMBOL(set_module_record_ld);
@@ -132,6 +142,8 @@ EXPORT_SYMBOL(set_module_record_wt);
 EXPORT_SYMBOL(set_module_record_h_ld);
 EXPORT_SYMBOL(set_module_record_grp_share);
 EXPORT_SYMBOL(set_module_record_create_tg);
+EXPORT_SYMBOL(set_module_record_rb);
+
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -3461,10 +3473,6 @@ dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
 static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 			    unsigned long weight)
 {
-	int load_change = 0;
-	if (se->load.weight != weight) {
-		load_change = 1;
-	}
 	if (se->on_rq) {
 		/* commit outstanding execution time */
 		if (cfs_rq->curr == se)
@@ -3488,19 +3496,19 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	if (se->on_rq) {
 		update_load_add(&cfs_rq->load, se->load.weight);
 	}
-	if (load_change) {
-		if (entity_is_task(se)) {
-			sp_record_wt(0, rq_of(cfs_rq)->cpu, task_of(se)->pid,
-						scale_load_down(se->load.weight));
-			sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg);
-		}
-		else {
-			sp_record_wt(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, scale_load_down(se->load.weight));
-			sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg);
-		}
-		sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, scale_load_down(cfs_rq->load.weight));
-		sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
+	// if (load_change) {
+	if (entity_is_task(se)) {
+		sp_record_wt(0, rq_of(cfs_rq)->cpu, task_of(se)->pid,
+					scale_load_down(se->load.weight), 0);
+		sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg, se->on_rq);
 	}
+	else {
+		sp_record_wt(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, scale_load_down(se->load.weight));
+		sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg, se->on_rq);
+	}
+	sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, scale_load_down(cfs_rq->load.weight));
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, -1);
+	// }
 }
 
 void reweight_task(struct task_struct *p, int prio)
@@ -3780,7 +3788,7 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 	if (abs(delta) > cfs_rq->tg_load_avg_contrib / 64) {
 		atomic_long_add(delta, &cfs_rq->tg->load_avg);
 		cfs_rq->tg_load_avg_contrib = cfs_rq->avg.load_avg;
-		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, atomic_long_read(&cfs_rq->tg->load_avg));
+		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, atomic_long_read(&cfs_rq->tg->load_avg), -1);
 	}
 }
 
@@ -4006,11 +4014,11 @@ update_tg_cfs_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq
 	se->avg.load_sum = runnable_sum;
 	se->avg.load_avg = load_avg;
 
-	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se->avg.load_avg);
+	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se->avg.load_avg, se->on_rq);
 
 	add_positive(&cfs_rq->avg.load_avg, delta_avg);
 
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
 
 	add_positive(&cfs_rq->avg.load_sum, delta_sum);
 	/* See update_cfs_rq_load_avg() */
@@ -4310,7 +4318,7 @@ static void attach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
 }
 
 /**
@@ -4341,7 +4349,7 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
 }
 
 /*
@@ -10885,6 +10893,8 @@ redo:
 		goto out_balanced;
 	}
 
+	sp_record_rb(1, this_cpu, sd->span_weight);
+
 	group = find_busiest_group(&env);
 	if (!group) {
 		schedstat_inc(sd->lb_nobusyg[idle]);
@@ -11294,6 +11304,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	int need_serialize, need_decay = 0;
 	u64 max_cost = 0;
 
+	sp_record_rb(0, 0, 0);
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
 		/*
