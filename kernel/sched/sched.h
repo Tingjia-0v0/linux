@@ -105,7 +105,7 @@ struct cpuidle_state;
 #define TASK_ON_RQ_MIGRATING	2
 
 extern void sp_record_task_act(int option, int cpu, int pid);
-extern void sp_record_ld(int option, int cpu, int id, unsigned long ld, int on_rq);
+extern void sp_record_ld(int option, int cpu, int id, unsigned long ld);
 extern void sp_record_wt(int option, int cpu, int id, long weight);
 extern void sp_record_h_ld(int option, int cpu, int id, 
 					unsigned long up_h_load, unsigned long up_load, 
@@ -114,6 +114,8 @@ extern void sp_record_grp_share(int cpu, int id, unsigned long tg_shares,
 						 unsigned long this_load, unsigned long all_load);
 extern void sp_record_create_tg(int gid);
 extern void sp_record_rb(int step, int cpu, int weight);
+extern void sp_record_nr_running(int cpu, int nr_running);
+extern void sp_record_enqueue(int option, int is_task, int cpu, int id);
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
@@ -2433,6 +2435,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	unsigned prev_nr = rq->nr_running;
 
 	rq->nr_running = prev_nr + count;
+	sp_record_nr_running(rq->cpu, rq->nr_running);
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, count);
 	}
@@ -2450,6 +2453,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
 	rq->nr_running -= count;
+	sp_record_nr_running(rq->cpu, rq->nr_running);
 	if (trace_sched_update_nr_running_tp_enabled()) {
 		call_trace_sched_update_nr_running(rq, -count);
 	}

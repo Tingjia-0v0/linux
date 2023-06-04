@@ -2104,6 +2104,7 @@ static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 
 void activate_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	sp_record_task_act(2, rq->cpu, p->pid);
 	if (task_on_rq_migrating(p))
 		flags |= ENQUEUE_MIGRATED;
 	if (flags & ENQUEUE_MIGRATED)
@@ -2117,6 +2118,7 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 
 void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	sp_record_task_act(3, rq->cpu, p->pid);
 	p->on_rq = (flags & DEQUEUE_SLEEP) ? 0 : TASK_ON_RQ_MIGRATING;
 
 	dequeue_task(rq, p, flags);

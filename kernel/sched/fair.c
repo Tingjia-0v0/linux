@@ -59,12 +59,14 @@
 #include <linux/module.h>
 
 typedef void (* sp_record_task_act_t)(int, int, int);
-typedef void (* sp_record_ld_t)(int, int, int, unsigned long, int);
+typedef void (* sp_record_ld_t)(int, int, int, unsigned long);
 typedef void (* sp_record_wt_t)(int, int, int, long);
 typedef void (* sp_record_h_ld_t)(int, int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_grp_share_t)(int, int, unsigned long, unsigned long, unsigned long);
 typedef void (* sp_record_create_tg_t)(int);
 typedef void (* sp_record_rb_t)(int, int, int);
+typedef void (* sp_record_nr_running_t)(int, int);
+typedef void (* sp_record_enqueue_t)(int, int, int, int);
 
 __read_mostly volatile sp_record_task_act_t sp_module_record_task_act = NULL;
 __read_mostly volatile sp_record_ld_t		sp_module_record_ld = NULL;
@@ -73,15 +75,17 @@ __read_mostly volatile sp_record_h_ld_t		sp_module_record_h_ld = NULL;
 __read_mostly volatile sp_record_grp_share_t	sp_module_record_grp_share = NULL;
 __read_mostly volatile sp_record_create_tg_t	sp_module_record_create_tg = NULL;
 __read_mostly volatile sp_record_rb_t			sp_module_record_rb = NULL;
+__read_mostly volatile sp_record_nr_running_t	sp_module_record_nr_running = NULL;
+__read_mostly volatile sp_record_enqueue_t		sp_module_record_enqueue = NULL;
 
 void sp_record_task_act(int option, int cpu, int pid) {
 	if (sp_module_record_task_act)
 		(* sp_module_record_task_act)(option, cpu, pid);
 }
 // Option: 0 task; 1 group se; 2 cfs_rq; 3 task_group
-void sp_record_ld(int option, int cpu, int id, unsigned long ld, int on_rq) {
+void sp_record_ld(int option, int cpu, int id, unsigned long ld) {
 	if (* sp_module_record_ld)
-		(* sp_module_record_ld)(option, cpu, id, ld, on_rq);
+		(* sp_module_record_ld)(option, cpu, id, ld);
 }
 // Option: 2, add/sub/set cfs_rq
 //		   1, add/sub/set se
@@ -114,6 +118,16 @@ void sp_record_rb(int step, int cpu, int weight) {
 		(* sp_module_record_rb)(step, cpu, weight);
 }
 
+void sp_record_nr_running(int cpu, int nr_running) {
+	if (* sp_module_record_nr_running)
+		(* sp_module_record_nr_running)(cpu, nr_running);
+}
+
+void sp_record_enqueue(int option, int is_task, int cpu, int id) {
+	if (* sp_module_record_enqueue)
+		(* sp_module_record_enqueue)(option, is_task, cpu, id);
+}
+
 void set_module_record_task_act(sp_record_task_act_t __sp_module_record_task_act) {
 	sp_module_record_task_act = __sp_module_record_task_act;
 }
@@ -135,6 +149,12 @@ void set_module_record_create_tg(sp_record_create_tg_t __sp_module_record_create
 void set_module_record_rb(sp_record_rb_t __sp_module_record_rb) {
 	sp_module_record_rb = __sp_module_record_rb;
 }
+void set_module_record_nr_running(sp_record_nr_running_t __sp_module_record_nr_running) {
+	sp_module_record_nr_running = __sp_module_record_nr_running;
+}
+void set_module_record_enqueue(sp_record_enqueue_t __sp_module_record_enqueue) {
+	sp_module_record_enqueue = __sp_module_record_enqueue;
+}
 
 EXPORT_SYMBOL(set_module_record_task_act);
 EXPORT_SYMBOL(set_module_record_ld);
@@ -143,6 +163,8 @@ EXPORT_SYMBOL(set_module_record_h_ld);
 EXPORT_SYMBOL(set_module_record_grp_share);
 EXPORT_SYMBOL(set_module_record_create_tg);
 EXPORT_SYMBOL(set_module_record_rb);
+EXPORT_SYMBOL(set_module_record_nr_running);
+EXPORT_SYMBOL(set_module_record_enqueue);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -3500,14 +3522,14 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	if (entity_is_task(se)) {
 		sp_record_wt(0, rq_of(cfs_rq)->cpu, task_of(se)->pid,
 					scale_load_down(se->load.weight));
-		sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg, se->on_rq);
+		sp_record_ld(0, rq_of(cfs_rq)->cpu, task_of(se)->pid, (&se->avg)->load_avg);
 	}
 	else {
 		sp_record_wt(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, scale_load_down(se->load.weight));
-		sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg, se->on_rq);
+		sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, (&se->avg)->load_avg);
 	}
 	sp_record_wt(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, scale_load_down(cfs_rq->load.weight));
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, -1);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 	// }
 }
 
@@ -3788,7 +3810,7 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 	if (abs(delta) > cfs_rq->tg_load_avg_contrib / 64) {
 		atomic_long_add(delta, &cfs_rq->tg->load_avg);
 		cfs_rq->tg_load_avg_contrib = cfs_rq->avg.load_avg;
-		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, atomic_long_read(&cfs_rq->tg->load_avg), -1);
+		sp_record_ld(3, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, atomic_long_read(&cfs_rq->tg->load_avg));
 	}
 }
 
@@ -4014,11 +4036,11 @@ update_tg_cfs_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq
 	se->avg.load_sum = runnable_sum;
 	se->avg.load_avg = load_avg;
 
-	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se->avg.load_avg, se->on_rq);
+	sp_record_ld(1, rq_of(cfs_rq)->cpu, se->my_q->tg->id, se->avg.load_avg);
 
 	add_positive(&cfs_rq->avg.load_avg, delta_avg);
 
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 
 	add_positive(&cfs_rq->avg.load_sum, delta_sum);
 	/* See update_cfs_rq_load_avg() */
@@ -4318,7 +4340,7 @@ static void attach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 }
 
 /**
@@ -4349,7 +4371,7 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 	cfs_rq_util_change(cfs_rq, 0);
 
 	trace_pelt_cfs_tp(cfs_rq);
-	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg, se->on_rq);
+	sp_record_ld(2, rq_of(cfs_rq)->cpu, cfs_rq->tg->id, cfs_rq->avg.load_avg);
 }
 
 /*
@@ -4992,6 +5014,10 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (!curr)
 		__enqueue_entity(cfs_rq, se);
 	se->on_rq = 1;
+	if (entity_is_task(se))
+		sp_record_enqueue(0, 0, cpu_of(rq_of(cfs_rq)), task_of(se)->pid);
+	else
+		sp_record_enqueue(0, 1, cpu_of(rq_of(cfs_rq)), se->my_q->tg->id);
 
 	if (cfs_rq->nr_running == 1) {
 		check_enqueue_throttle(cfs_rq);
@@ -5079,6 +5105,10 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
 	se->on_rq = 0;
+	if (entity_is_task(se))
+		sp_record_enqueue(1, 0, cpu_of(rq_of(cfs_rq)), task_of(se)->pid);
+	else
+		sp_record_enqueue(1, 1, cpu_of(rq_of(cfs_rq)), se->my_q->tg->id);
 	account_entity_dequeue(cfs_rq, se);
 
 	/*
