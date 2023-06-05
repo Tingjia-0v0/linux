@@ -11156,6 +11156,7 @@ out_one_pinned:
 	    sd->balance_interval < sd->max_interval)
 		sd->balance_interval *= 2;
 out:
+	sp_record_rb(2, this_cpu, ld_moved);
 	return ld_moved;
 }
 
@@ -11334,7 +11335,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	int need_serialize, need_decay = 0;
 	u64 max_cost = 0;
 
-	sp_record_rb(0, 0, 0);
+	sp_record_rb(0, rq->cpu, 0);
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
 		/*
