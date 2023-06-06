@@ -5617,7 +5617,7 @@ void scheduler_tick(void)
 
 	sched_clock_tick();
 
-	sp_record_rb(-2, >cpu, curr->pid);
+	sp_record_rb(-2, cpu, curr->pid);
 
 	rq_lock(rq, &rf);
 
