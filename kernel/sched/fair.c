@@ -11364,19 +11364,19 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 				goto out;
 		}
 
-		if (time_after_eq(jiffies, sd->last_balance + interval)) {
-			if (load_balance(cpu, rq, sd, idle, &continue_balancing)) {
-				/*
-				 * The LBF_DST_PINNED logic could have changed
-				 * env->dst_cpu, so we can't know our idle
-				 * state even if we migrated tasks. Update it.
-				 */
-				idle = idle_cpu(cpu) ? CPU_IDLE : CPU_NOT_IDLE;
-				busy = idle != CPU_IDLE && !sched_idle_cpu(cpu);
-			}
-			sd->last_balance = jiffies;
-			interval = get_sd_balance_interval(sd, busy);
+		// if (time_after_eq(jiffies, sd->last_balance + interval)) {
+		if (load_balance(cpu, rq, sd, idle, &continue_balancing)) {
+			/*
+				* The LBF_DST_PINNED logic could have changed
+				* env->dst_cpu, so we can't know our idle
+				* state even if we migrated tasks. Update it.
+				*/
+			idle = idle_cpu(cpu) ? CPU_IDLE : CPU_NOT_IDLE;
+			busy = idle != CPU_IDLE && !sched_idle_cpu(cpu);
 		}
+		sd->last_balance = jiffies;
+		interval = get_sd_balance_interval(sd, busy);
+		// }
 		if (need_serialize)
 			spin_unlock(&balancing);
 out:
@@ -12039,7 +12039,7 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	struct rq *this_rq = this_rq();
 	enum cpu_idle_type idle = this_rq->idle_balance ?
 						CPU_IDLE : CPU_NOT_IDLE;
-	sp_record_rb(-1, this_rq->cpu, (int)idle);
+	// sp_record_rb(-1, this_rq->cpu, (int)idle);
 	/*
 	 * If this CPU has a pending nohz_balance_kick, then do the
 	 * balancing on behalf of the other idle CPUs whose ticks are
@@ -12068,8 +12068,8 @@ void trigger_load_balance(struct rq *rq)
 	if (unlikely(on_null_domain(rq) || !cpu_active(cpu_of(rq))))
 		return;
 
-	if (time_after_eq(jiffies, rq->next_balance))
-		raise_softirq(SCHED_SOFTIRQ);
+	// if (time_after_eq(jiffies, rq->next_balance))
+	raise_softirq(SCHED_SOFTIRQ);
 
 	nohz_balancer_kick(rq);
 }
