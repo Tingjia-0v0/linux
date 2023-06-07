@@ -116,6 +116,9 @@ extern void sp_record_create_tg(int gid);
 extern void sp_record_rb(int step, int cpu, int weight);
 extern void sp_record_nr_running(int cpu, int nr_running);
 extern void sp_record_enqueue(int option, int is_task, int cpu, int id);
+extern void sp_record_dt(int step, int src_cpu, int dst_cpu, int pid, unsigned long arg1, long arg2, int arg3);
+extern void sp_record_mt(int step, int src_cpu, int dst_cpu, int pid);
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;

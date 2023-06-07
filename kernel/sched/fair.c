@@ -67,6 +67,8 @@ typedef void (* sp_record_create_tg_t)(int);
 typedef void (* sp_record_rb_t)(int, int, int);
 typedef void (* sp_record_nr_running_t)(int, int);
 typedef void (* sp_record_enqueue_t)(int, int, int, int);
+typedef void (* sp_record_dt_t)(int, int, int, int, unsigned long, long, int);
+typedef void (* sp_record_mt_t)(int, int, int, int);
 
 __read_mostly volatile sp_record_task_act_t sp_module_record_task_act = NULL;
 __read_mostly volatile sp_record_ld_t		sp_module_record_ld = NULL;
@@ -77,6 +79,8 @@ __read_mostly volatile sp_record_create_tg_t	sp_module_record_create_tg = NULL;
 __read_mostly volatile sp_record_rb_t			sp_module_record_rb = NULL;
 __read_mostly volatile sp_record_nr_running_t	sp_module_record_nr_running = NULL;
 __read_mostly volatile sp_record_enqueue_t		sp_module_record_enqueue = NULL;
+__read_mostly volatile sp_record_dt_t			sp_module_record_dt = NULL;
+__read_mostly volatile sp_record_mt_t			sp_module_record_mt = NULL;
 
 void sp_record_task_act(int option, int cpu, int pid) {
 	if (sp_module_record_task_act)
@@ -128,6 +132,16 @@ void sp_record_enqueue(int option, int is_task, int cpu, int id) {
 		(* sp_module_record_enqueue)(option, is_task, cpu, id);
 }
 
+void sp_record_dt(int step, int src_cpu, int dst_cpu, int pid, unsigned long arg1, long arg2, int arg3) {
+	if (* sp_module_record_dt)
+		(* sp_module_record_dt)(step, src_cpu, dst_cpu, pid, arg1, arg2, arg3);
+}
+
+void sp_record_mt(int step, int src_cpu, int dst_cpu, int pid) {
+	if (* sp_module_record_mt)
+		(* sp_module_record_mt)(step, src_cpu, dst_cpu, pid);
+}
+
 void set_module_record_task_act(sp_record_task_act_t __sp_module_record_task_act) {
 	sp_module_record_task_act = __sp_module_record_task_act;
 }
@@ -155,6 +169,12 @@ void set_module_record_nr_running(sp_record_nr_running_t __sp_module_record_nr_r
 void set_module_record_enqueue(sp_record_enqueue_t __sp_module_record_enqueue) {
 	sp_module_record_enqueue = __sp_module_record_enqueue;
 }
+void set_module_record_dt(sp_record_dt_t __sp_module_record_dt) {
+	sp_module_record_dt = __sp_module_record_dt;
+}
+void set_module_record_mt(sp_record_mt_t __sp_module_record_mt) {
+	sp_module_record_mt = __sp_module_record_mt;
+} 
 
 EXPORT_SYMBOL(set_module_record_task_act);
 EXPORT_SYMBOL(set_module_record_ld);
@@ -165,6 +185,8 @@ EXPORT_SYMBOL(set_module_record_create_tg);
 EXPORT_SYMBOL(set_module_record_rb);
 EXPORT_SYMBOL(set_module_record_nr_running);
 EXPORT_SYMBOL(set_module_record_enqueue);
+EXPORT_SYMBOL(set_module_record_dt);
+EXPORT_SYMBOL(set_module_record_mt);
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
@@ -8672,12 +8694,16 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	 * 3) running (obviously), or
 	 * 4) are cache-hot on their current CPU.
 	 */
-	if (throttled_lb_pair(task_group(p), env->src_cpu, env->dst_cpu))
+	if (throttled_lb_pair(task_group(p), env->src_cpu, env->dst_cpu)) {
+		sp_record_mt(0,  env->src_cpu, env->dst_cpu, p->pid);
 		return 0;
+	}
 
 	/* Disregard pcpu kthreads; they are where they need to be. */
-	if (kthread_is_per_cpu(p))
+	if (kthread_is_per_cpu(p)) {
+		sp_record_mt(1,  env->src_cpu, env->dst_cpu, p->pid);
 		return 0;
+	}
 
 	if (!cpumask_test_cpu(env->dst_cpu, p->cpus_ptr)) {
 		int cpu;
@@ -8697,8 +8723,10 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		 * - if it's an active balance
 		 */
 		if (env->idle == CPU_NEWLY_IDLE ||
-		    env->flags & (LBF_DST_PINNED | LBF_ACTIVE_LB))
+		    env->flags & (LBF_DST_PINNED | LBF_ACTIVE_LB)) {
+			sp_record_mt(2, env->src_cpu, env->dst_cpu, p->pid);
 			return 0;
+		}
 
 		/* Prevent to re-select dst_cpu via env's CPUs: */
 		for_each_cpu_and(cpu, env->dst_grpmask, env->cpus) {
@@ -8708,7 +8736,7 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 				break;
 			}
 		}
-
+		sp_record_mt(3, env->src_cpu, env->dst_cpu, p->pid);
 		return 0;
 	}
 
@@ -8717,6 +8745,7 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 
 	if (task_on_cpu(env->src_rq, p)) {
 		schedstat_inc(p->stats.nr_failed_migrations_running);
+		sp_record_mt(4, env->src_cpu, env->dst_cpu, p->pid);
 		return 0;
 	}
 
@@ -8727,8 +8756,10 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	 * 3) task is cache cold, or
 	 * 4) too many balance attempts have failed.
 	 */
-	if (env->flags & LBF_ACTIVE_LB)
+	if (env->flags & LBF_ACTIVE_LB) {
+		sp_record_mt(5, env->src_cpu, env->dst_cpu, p->pid);
 		return 1;
+	}
 
 	tsk_cache_hot = migrate_degrades_locality(p, env);
 	if (tsk_cache_hot == -1)
@@ -8740,10 +8771,12 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 			schedstat_inc(env->sd->lb_hot_gained[env->idle]);
 			schedstat_inc(p->stats.nr_forced_migrations);
 		}
+		sp_record_mt(6, env->src_cpu, env->dst_cpu, p->pid);
 		return 1;
 	}
 
 	schedstat_inc(p->stats.nr_failed_migrations_hot);
+	sp_record_mt(7, env->src_cpu, env->dst_cpu, p->pid);
 	return 0;
 }
 
@@ -8842,9 +8875,12 @@ static int detach_tasks(struct lb_env *env)
 
 		p = list_last_entry(tasks, struct task_struct, se.group_node);
 
-		if (!can_migrate_task(p, env))
+		sp_record_dt(0, env->src_cpu, env->dst_cpu, p->pid, 0, 0, 0);
+		if (!can_migrate_task(p, env)) {
+			sp_record_dt(1, env->src_cpu, env->dst_cpu, p->pid, 0, 0, 0);
 			goto next;
-
+		}
+		sp_record_dt(2, env->src_cpu, env->dst_cpu, p->pid, 0, 0, 0);
 		switch (env->migration_type) {
 		case migrate_load:
 			/*
@@ -8857,8 +8893,10 @@ static int detach_tasks(struct lb_env *env)
 			load = max_t(unsigned long, task_h_load(p), 1);
 
 			if (sched_feat(LB_MIN) &&
-			    load < 16 && !env->sd->nr_balance_failed)
+			    load < 16 && !env->sd->nr_balance_failed) {
+				sp_record_dt(3, env->src_cpu, env->dst_cpu, p->pid, load, env->imbalance, env->sd->nr_balance_failed);
 				goto next;
+			}
 
 			/*
 			 * Make sure that we don't migrate too much load.
@@ -8866,31 +8904,41 @@ static int detach_tasks(struct lb_env *env)
 			 * scheduler fails to find a good waiting task to
 			 * migrate.
 			 */
-			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance)
+			if (shr_bound(load, env->sd->nr_balance_failed) > env->imbalance) {
+				sp_record_dt(4, env->src_cpu, env->dst_cpu, p->pid, load, env->imbalance, env->sd->nr_balance_failed);
 				goto next;
+			}
 
 			env->imbalance -= load;
+			sp_record_dt(5, env->src_cpu, env->dst_cpu, p->pid, load, env->imbalance, env->sd->nr_balance_failed);
 			break;
 
 		case migrate_util:
 			util = task_util_est(p);
 
-			if (util > env->imbalance)
+			if (util > env->imbalance) {
+				sp_record_dt(6, env->src_cpu, env->dst_cpu, p->pid, util, env->imbalance, 0);
 				goto next;
+			}
 
 			env->imbalance -= util;
+			sp_record_dt(7, env->src_cpu, env->dst_cpu, p->pid, util, env->imbalance, 0);
 			break;
 
 		case migrate_task:
 			env->imbalance--;
+			sp_record_dt(8, env->src_cpu, env->dst_cpu, p->pid, 0, env->imbalance, 0);
 			break;
 
 		case migrate_misfit:
 			/* This is not a misfit task */
-			if (task_fits_cpu(p, env->src_cpu))
+			if (task_fits_cpu(p, env->src_cpu)) {
+				sp_record_dt(9, env->src_cpu, env->dst_cpu, p->pid, 0, 0, 0);
 				goto next;
+			}
 
 			env->imbalance = 0;
+			sp_record_dt(10, env->src_cpu, env->dst_cpu, p->pid, 0, 0, 0);
 			break;
 		}
 
@@ -8927,7 +8975,7 @@ next:
 	 * than inside detach_one_task().
 	 */
 	schedstat_add(env->sd->lb_gained[env->idle], detached);
-
+	sp_record_dt(11, env->src_cpu, env->dst_cpu, detached, 0, 0, 0);
 	return detached;
 }
 
@@ -10928,12 +10976,14 @@ redo:
 	group = find_busiest_group(&env);
 	if (!group) {
 		schedstat_inc(sd->lb_nobusyg[idle]);
+		sp_record_rb(3, this_cpu, sd->span_weight);
 		goto out_balanced;
 	}
 
 	busiest = find_busiest_queue(&env, group);
 	if (!busiest) {
 		schedstat_inc(sd->lb_nobusyq[idle]);
+		sp_record_rb(4, this_cpu, sd->span_weight);
 		goto out_balanced;
 	}
 
