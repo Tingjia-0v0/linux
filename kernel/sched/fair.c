@@ -55,7 +55,33 @@
 #include "sched.h"
 #include "stats.h"
 #include "autogroup.h"
+#include <linux/module.h>
+typedef void (* sp_record_yield_t)(int, int);
+typedef void (* sp_record_pick_t)(int, int, int);
 
+__read_mostly volatile sp_record_yield_t sp_module_record_yield = NULL;
+__read_mostly volatile sp_record_pick_t sp_module_record_pick = NULL;
+
+void sp_record_yield(int cpu, int pid) {
+	if (sp_module_record_yield) 
+		(* sp_module_record_yield)(cpu, pid);
+}
+
+void sp_record_pick(int cpu, int prev_pid, int next_pid) {
+	if (sp_module_record_pick)
+		(* sp_module_record_pick)(cpu, prev_pid, next_pid);
+}
+
+void set_module_record_yield(sp_record_yield_t __sp_module_record_yield) {
+	sp_module_record_yield = __sp_module_record_yield;
+}
+
+void set_module_record_pick(sp_record_pick_t __sp_module_record_pick) {
+	sp_module_record_pick = __sp_module_record_pick;
+}
+
+EXPORT_SYMBOL(set_module_record_yield);
+EXPORT_SYMBOL(set_module_record_pick);
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -5035,6 +5061,8 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 static void
 set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	if (se == NULL)
+		printk(KERN_INFO "next entity in null pointer %d %d %d", cfs_rq->rq->cpu, cfs_rq->rq->cfs.nr_running, cfs_rq->rq->cfs.hard_skip != NULL);
 	clear_buddies(cfs_rq, se);
 
 	/* 'current' is not kept within the tree. */
@@ -5112,6 +5140,18 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
 		if (second && wakeup_preempt_entity(second, left) < 1)
 			se = second;
+	}
+	if (cfs_rq->hard_skip && cfs_rq->hard_skip == se) {
+		struct sched_entity *second;
+
+		if (se == curr) {
+			second = __pick_first_entity(cfs_rq);
+		} else {
+			second = __pick_next_entity(se);
+			if (!second || (curr && entity_before(curr, second)))
+				second = curr;
+		}
+		se = second;
 	}
 
 	if (cfs_rq->next && wakeup_preempt_entity(cfs_rq->next, left) < 1) {
@@ -5426,53 +5466,57 @@ static bool throttle_cfs_rq(struct cfs_rq *cfs_rq)
 		return false;  /* Throttle no longer required. */
 
 	se = cfs_rq->tg->se[cpu_of(rq_of(cfs_rq))];
+	for_each_sched_entity(se) {
+		printk(KERN_INFO "set_hard_skip %d", rq_of(cfs_rq)->cpu);
+		cfs_rq_of(se)->hard_skip = se;
+	}
 
 	/* freeze hierarchy runnable averages while throttled */
-	rcu_read_lock();
-	walk_tg_tree_from(cfs_rq->tg, tg_throttle_down, tg_nop, (void *)rq);
-	rcu_read_unlock();
+	// rcu_read_lock();
+	// walk_tg_tree_from(cfs_rq->tg, tg_throttle_down, tg_nop, (void *)rq);
+	// rcu_read_unlock();
 
-	task_delta = cfs_rq->h_nr_running;
-	idle_task_delta = cfs_rq->idle_h_nr_running;
-	for_each_sched_entity(se) {
-		struct cfs_rq *qcfs_rq = cfs_rq_of(se);
-		/* throttled entity or throttle-on-deactivate */
-		if (!se->on_rq)
-			goto done;
+	// task_delta = cfs_rq->h_nr_running;
+	// idle_task_delta = cfs_rq->idle_h_nr_running;
+	// for_each_sched_entity(se) {
+	// 	struct cfs_rq *qcfs_rq = cfs_rq_of(se);
+	// 	/* throttled entity or throttle-on-deactivate */
+	// 	if (!se->on_rq)
+	// 		goto done;
 
-		dequeue_entity(qcfs_rq, se, DEQUEUE_SLEEP);
+	// 	dequeue_entity(qcfs_rq, se, DEQUEUE_SLEEP);
 
-		if (cfs_rq_is_idle(group_cfs_rq(se)))
-			idle_task_delta = cfs_rq->h_nr_running;
+	// 	if (cfs_rq_is_idle(group_cfs_rq(se)))
+	// 		idle_task_delta = cfs_rq->h_nr_running;
 
-		qcfs_rq->h_nr_running -= task_delta;
-		qcfs_rq->idle_h_nr_running -= idle_task_delta;
+	// 	qcfs_rq->h_nr_running -= task_delta;
+	// 	qcfs_rq->idle_h_nr_running -= idle_task_delta;
 
-		if (qcfs_rq->load.weight) {
-			/* Avoid re-evaluating load for this entity: */
-			se = parent_entity(se);
-			break;
-		}
-	}
+	// 	if (qcfs_rq->load.weight) {
+	// 		/* Avoid re-evaluating load for this entity: */
+	// 		se = parent_entity(se);
+	// 		break;
+	// 	}
+	// }
 
-	for_each_sched_entity(se) {
-		struct cfs_rq *qcfs_rq = cfs_rq_of(se);
-		/* throttled entity or throttle-on-deactivate */
-		if (!se->on_rq)
-			goto done;
+	// for_each_sched_entity(se) {
+	// 	struct cfs_rq *qcfs_rq = cfs_rq_of(se);
+	// 	/* throttled entity or throttle-on-deactivate */
+	// 	if (!se->on_rq)
+	// 		goto done;
 
-		update_load_avg(qcfs_rq, se, 0);
-		se_update_runnable(se);
+	// 	update_load_avg(qcfs_rq, se, 0);
+	// 	se_update_runnable(se);
 
-		if (cfs_rq_is_idle(group_cfs_rq(se)))
-			idle_task_delta = cfs_rq->h_nr_running;
+	// 	if (cfs_rq_is_idle(group_cfs_rq(se)))
+	// 		idle_task_delta = cfs_rq->h_nr_running;
 
-		qcfs_rq->h_nr_running -= task_delta;
-		qcfs_rq->idle_h_nr_running -= idle_task_delta;
-	}
+	// 	qcfs_rq->h_nr_running -= task_delta;
+	// 	qcfs_rq->idle_h_nr_running -= idle_task_delta;
+	// }
 
-	/* At this point se is NULL and we are at root level*/
-	sub_nr_running(rq, task_delta);
+	// /* At this point se is NULL and we are at root level*/
+	// sub_nr_running(rq, task_delta);
 
 done:
 	/*
@@ -5481,6 +5525,8 @@ done:
 	 */
 	cfs_rq->throttled = 1;
 	cfs_rq->throttled_clock = rq_clock(rq);
+	if (rq->cfs.nr_running > 1)
+		resched_curr(rq);
 	return true;
 }
 
@@ -5502,62 +5548,69 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 	list_del_rcu(&cfs_rq->throttled_list);
 	raw_spin_unlock(&cfs_b->lock);
 
-	/* update hierarchical throttle state */
-	walk_tg_tree_from(cfs_rq->tg, tg_nop, tg_unthrottle_up, (void *)rq);
-
-	if (!cfs_rq->load.weight) {
-		if (!cfs_rq->on_list)
-			return;
-		/*
-		 * Nothing to run but something to decay (on_list)?
-		 * Complete the branch.
-		 */
-		for_each_sched_entity(se) {
-			if (list_add_leaf_cfs_rq(cfs_rq_of(se)))
-				break;
-		}
-		goto unthrottle_throttle;
-	}
-
-	task_delta = cfs_rq->h_nr_running;
-	idle_task_delta = cfs_rq->idle_h_nr_running;
 	for_each_sched_entity(se) {
-		struct cfs_rq *qcfs_rq = cfs_rq_of(se);
-
-		if (se->on_rq)
+		struct cfs_rq *cfs_rq = cfs_rq_of(se);
+		if (cfs_rq->hard_skip != se)
 			break;
-		enqueue_entity(qcfs_rq, se, ENQUEUE_WAKEUP);
-
-		if (cfs_rq_is_idle(group_cfs_rq(se)))
-			idle_task_delta = cfs_rq->h_nr_running;
-
-		qcfs_rq->h_nr_running += task_delta;
-		qcfs_rq->idle_h_nr_running += idle_task_delta;
-
-		/* end evaluation on encountering a throttled cfs_rq */
-		if (cfs_rq_throttled(qcfs_rq))
-			goto unthrottle_throttle;
+		printk(KERN_INFO "clear hard_skip %d", cfs_rq->rq->cpu);
+		cfs_rq->hard_skip = NULL;
 	}
+	/* update hierarchical throttle state */
+	// walk_tg_tree_from(cfs_rq->tg, tg_nop, tg_unthrottle_up, (void *)rq);
 
-	for_each_sched_entity(se) {
-		struct cfs_rq *qcfs_rq = cfs_rq_of(se);
+	// if (!cfs_rq->load.weight) {
+	// 	if (!cfs_rq->on_list)
+	// 		return;
+	// 	/*
+	// 	 * Nothing to run but something to decay (on_list)?
+	// 	 * Complete the branch.
+	// 	 */
+	// 	for_each_sched_entity(se) {
+	// 		if (list_add_leaf_cfs_rq(cfs_rq_of(se)))
+	// 			break;
+	// 	}
+	// 	goto unthrottle_throttle;
+	// }
 
-		update_load_avg(qcfs_rq, se, UPDATE_TG);
-		se_update_runnable(se);
+	// task_delta = cfs_rq->h_nr_running;
+	// idle_task_delta = cfs_rq->idle_h_nr_running;
+	// for_each_sched_entity(se) {
+	// 	struct cfs_rq *qcfs_rq = cfs_rq_of(se);
 
-		if (cfs_rq_is_idle(group_cfs_rq(se)))
-			idle_task_delta = cfs_rq->h_nr_running;
+	// 	if (se->on_rq)
+	// 		break;
+	// 	enqueue_entity(qcfs_rq, se, ENQUEUE_WAKEUP);
 
-		qcfs_rq->h_nr_running += task_delta;
-		qcfs_rq->idle_h_nr_running += idle_task_delta;
+	// 	if (cfs_rq_is_idle(group_cfs_rq(se)))
+	// 		idle_task_delta = cfs_rq->h_nr_running;
 
-		/* end evaluation on encountering a throttled cfs_rq */
-		if (cfs_rq_throttled(qcfs_rq))
-			goto unthrottle_throttle;
-	}
+	// 	qcfs_rq->h_nr_running += task_delta;
+	// 	qcfs_rq->idle_h_nr_running += idle_task_delta;
 
-	/* At this point se is NULL and we are at root level*/
-	add_nr_running(rq, task_delta);
+	// 	/* end evaluation on encountering a throttled cfs_rq */
+	// 	if (cfs_rq_throttled(qcfs_rq))
+	// 		goto unthrottle_throttle;
+	// }
+
+	// for_each_sched_entity(se) {
+	// 	struct cfs_rq *qcfs_rq = cfs_rq_of(se);
+
+	// 	update_load_avg(qcfs_rq, se, UPDATE_TG);
+	// 	se_update_runnable(se);
+
+	// 	if (cfs_rq_is_idle(group_cfs_rq(se)))
+	// 		idle_task_delta = cfs_rq->h_nr_running;
+
+	// 	qcfs_rq->h_nr_running += task_delta;
+	// 	qcfs_rq->idle_h_nr_running += idle_task_delta;
+
+	// 	/* end evaluation on encountering a throttled cfs_rq */
+	// 	if (cfs_rq_throttled(qcfs_rq))
+	// 		goto unthrottle_throttle;
+	// }
+
+	// /* At this point se is NULL and we are at root level*/
+	// add_nr_running(rq, task_delta);
 
 unthrottle_throttle:
 	assert_list_leaf_cfs_rq(rq);
@@ -7994,6 +8047,11 @@ again:
 	if (!sched_fair_runnable(rq))
 		goto idle;
 
+	if (rq->cfs.nr_running == 1 && rq->cfs.hard_skip != NULL) {
+		printk(KERN_INFO "return null when the hard_skip is the only entity");
+		return NULL;
+	}
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	if (!prev || prev->sched_class != &fair_sched_class)
 		goto simple;
@@ -8032,6 +8090,10 @@ again:
 
 				if (!cfs_rq->nr_running)
 					goto idle;
+				if (cfs_rq->nr_running == 1 && cfs_rq->hard_skip != NULL) {
+					printk(KERN_INFO "return null when the hard_skip is the only entity");
+					return NULL;
+				}
 
 				goto simple;
 			}
@@ -8161,6 +8223,8 @@ static void yield_task_fair(struct rq *rq)
 	 */
 	if (unlikely(rq->nr_running == 1))
 		return;
+	
+	sp_record_yield(rq->cpu, rq->curr->pid);
 
 	clear_buddies(cfs_rq, se);
 

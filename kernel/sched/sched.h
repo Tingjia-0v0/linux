@@ -120,6 +120,8 @@ extern unsigned int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 extern int sched_rr_timeslice;
 
+extern void sp_record_pick(int cpu, int prev_pid, int next_pid);
+extern void sp_record_yield(int cpu, int pid);
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
@@ -575,6 +577,7 @@ struct cfs_rq {
 	struct sched_entity	*next;
 	struct sched_entity	*last;
 	struct sched_entity	*skip;
+	struct sched_entity *hard_skip;
 
 #ifdef	CONFIG_SCHED_DEBUG
 	unsigned int		nr_spread_over;
