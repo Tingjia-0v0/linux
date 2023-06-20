@@ -578,6 +578,7 @@ struct cfs_rq {
 	struct sched_entity	*last;
 	struct sched_entity	*skip;
 	struct sched_entity *hard_skip;
+	struct sched_entity *record;
 
 #ifdef	CONFIG_SCHED_DEBUG
 	unsigned int		nr_spread_over;

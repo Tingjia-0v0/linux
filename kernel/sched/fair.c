@@ -5372,8 +5372,10 @@ void account_cfs_rq_runtime(struct cfs_rq *cfs_rq, u64 delta_exec)
 {
 	if (!cfs_bandwidth_used() || !cfs_rq->runtime_enabled)
 		return;
+	printk(KERN_INFO "account runtime %d", cfs_rq->rq->cpu);
 
 	__account_cfs_rq_runtime(cfs_rq, delta_exec);
+	printk(KERN_INFO "account runtime finish %d", cfs_rq->rq->cpu);
 }
 
 static inline int cfs_rq_throttled(struct cfs_rq *cfs_rq)
@@ -5554,6 +5556,7 @@ void unthrottle_cfs_rq(struct cfs_rq *cfs_rq)
 			break;
 		printk(KERN_INFO "clear hard_skip %d", cfs_rq->rq->cpu);
 		cfs_rq->hard_skip = NULL;
+		cfs_rq->record = se;
 	}
 	/* update hierarchical throttle state */
 	// walk_tg_tree_from(cfs_rq->tg, tg_nop, tg_unthrottle_up, (void *)rq);
@@ -8159,7 +8162,8 @@ done: __maybe_unused;
 		hrtick_start_fair(rq, p);
 
 	update_misfit_status(p, rq);
-
+	if (rq->cfs.record != NULL && (task_group(p)->se[rq->cpu] == rq->cfs.record))
+		printk(KERN_INFO "pick task %d", p->pid);
 	return p;
 
 idle:
