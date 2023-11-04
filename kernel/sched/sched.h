@@ -95,6 +95,14 @@ struct cpuidle_state;
 #define TASK_ON_RQ_QUEUED	1
 #define TASK_ON_RQ_MIGRATING	2
 
+
+extern void record_wakeup(int cpu, int pid, int tgid, int ppid);
+extern void record_tick(int cpu, int pid, int tgid, int ppid);
+extern void record_context_switch(int cpu, int prev_pid, int prev_tgid, int prev_ppid, 
+									int next_pid, int next_tgid, int next_ppid);
+extern void record_migration(int dst_cpu, int src_cpu, int sd_weight, int pid, int tgid, int ppid);
+extern void record_load_balance(int cpu, int sd_weight);
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;

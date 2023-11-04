@@ -3766,7 +3766,7 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags,
 		delayacct_blkio_end(p);
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
-
+	record_wakeup(rq->cpu, p->pid, p->tgid, p->real_parent->pid);
 	activate_task(rq, p, en_flags);
 	wakeup_preempt(rq, p, wake_flags);
 
@@ -4865,6 +4865,7 @@ void wake_up_new_task(struct task_struct *p)
 	update_rq_clock(rq);
 	post_init_entity_util_avg(p);
 
+	record_wakeup(rq->cpu, p->pid, p->tgid, p->real_parent->pid);
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
 	trace_sched_wakeup_new(p);
 	wakeup_preempt(rq, p, WF_FORK);
@@ -5648,6 +5649,9 @@ void scheduler_tick(void)
 	update_rq_clock(rq);
 	thermal_pressure = arch_scale_thermal_pressure(cpu_of(rq));
 	update_thermal_load_avg(rq_clock_thermal(rq), rq, thermal_pressure);
+
+	record_tick(rq->cpu, curr->pid, curr->tgid, curr->real_parent->pid);
+
 	curr->sched_class->task_tick(rq, curr, 0);
 	if (sched_feat(LATENCY_WARN))
 		resched_latency = cpu_resched_latency(rq);
@@ -6657,6 +6661,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 #endif
 
 	if (likely(prev != next)) {
+		record_context_switch(rq->cpu, prev->pid, prev->tgid, prev->parent->pid, next->pid, next->tgid, next->parent->pid);
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see

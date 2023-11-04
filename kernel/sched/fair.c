@@ -55,6 +55,61 @@
 #include "stats.h"
 #include "autogroup.h"
 
+#include <linux/module.h>
+
+typedef void (* record_wakeup_t)		(int, int, int, int);
+typedef void (* record_tick_t)  		(int, int, int, int);
+typedef void (* record_context_switch_t)(int, int, int, int, int, int, int);
+typedef void (* record_migration_t) 	(int, int, int, int, int, int);
+typedef void (* record_load_balance_t)	(int, int);
+
+__read_mostly volatile record_wakeup_t 			module_record_wakeup 			= NULL;
+__read_mostly volatile record_tick_t 			module_record_tick 				= NULL;
+__read_mostly volatile record_context_switch_t 	module_record_context_switch 	= NULL;
+__read_mostly volatile record_migration_t 		module_record_migration 		= NULL;
+__read_mostly volatile record_load_balance_t 	module_record_load_balance 		= NULL;
+
+void record_wakeup(int cpu, int pid, int tgid, int ppid) {
+	if (module_record_wakeup) (*module_record_wakeup)(cpu, pid, tgid, ppid);
+}
+void record_tick(int cpu, int pid, int tgid, int ppid) {
+	if (module_record_tick) (*module_record_tick)(cpu, pid, tgid, ppid);
+}
+void record_context_switch(int cpu, int prev_pid, int prev_tgid, int prev_ppid, 
+									int next_pid, int next_tgid, int next_ppid) {
+	if (module_record_context_switch) (*module_record_context_switch)(cpu, prev_pid, prev_tgid, prev_ppid,
+																		   next_pid, next_tgid, next_ppid);
+}
+void record_migration(int dst_cpu, int src_cpu, int sd_weight, int pid, int tgid, int ppid) {
+	if (module_record_migration) (*module_record_migration)(dst_cpu, src_cpu, sd_weight, pid, tgid, ppid);
+}
+void record_load_balance(int cpu, int sd_weight) {
+	if (module_record_load_balance) (*module_record_load_balance)(cpu, sd_weight);
+}
+
+void set_module_record_wakeup(record_wakeup_t __module_record_wakeup) {
+	module_record_wakeup = __module_record_wakeup;
+}
+void set_module_record_tick(record_tick_t __module_record_tick) {
+	module_record_tick = __module_record_tick;
+}
+void set_module_record_context_switch(record_context_switch_t __module_record_context_switch) {
+	module_record_context_switch = __module_record_context_switch;
+}
+void set_module_record_migration(record_migration_t __module_record_migration) {
+	module_record_migration = __module_record_migration;
+}
+void set_module_record_load_balance(record_load_balance_t __module_record_load_balance) {
+	module_record_load_balance = __module_record_load_balance;
+}
+
+EXPORT_SYMBOL(set_module_record_wakeup);
+EXPORT_SYMBOL(set_module_record_tick);
+EXPORT_SYMBOL(set_module_record_context_switch);
+EXPORT_SYMBOL(set_module_record_migration);
+EXPORT_SYMBOL(module_record_load_balance);
+
+
 /*
  * The initial- and re-scaling of tunables is configurable
  *
@@ -9052,6 +9107,8 @@ static void attach_tasks(struct lb_env *env)
 
 	while (!list_empty(tasks)) {
 		p = list_first_entry(tasks, struct task_struct, se.group_node);
+		record_migration(env->dst_cpu, env->src_cpu, env->sd->span_weight, p->pid, p->tgid, p->real_parent->pid);
+
 		list_del_init(&p->se.group_node);
 
 		attach_task(env->dst_rq, p);
@@ -11120,6 +11177,7 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 
 	schedstat_inc(sd->lb_count[idle]);
 
+	record_load_balance(this_cpu, sd->span_weight);
 redo:
 	if (!should_we_balance(&env)) {
 		*continue_balancing = 0;
@@ -11466,6 +11524,7 @@ static int active_load_balance_cpu_stop(void *data)
 			schedstat_inc(sd->alb_pushed);
 			/* Active balancing done, reset the failure counter. */
 			sd->nr_balance_failed = 0;
+			record_migration(env.target_cpu, env.src_cpu, env->sd->span_weight, p->pid, p->tgid, p->real_parent->pid);
 		} else {
 			schedstat_inc(sd->alb_failed);
 		}
