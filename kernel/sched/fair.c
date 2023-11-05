@@ -107,7 +107,7 @@ EXPORT_SYMBOL(set_module_record_wakeup);
 EXPORT_SYMBOL(set_module_record_tick);
 EXPORT_SYMBOL(set_module_record_context_switch);
 EXPORT_SYMBOL(set_module_record_migration);
-EXPORT_SYMBOL(module_record_load_balance);
+EXPORT_SYMBOL(set_module_record_load_balance);
 
 
 /*
@@ -11524,7 +11524,7 @@ static int active_load_balance_cpu_stop(void *data)
 			schedstat_inc(sd->alb_pushed);
 			/* Active balancing done, reset the failure counter. */
 			sd->nr_balance_failed = 0;
-			record_migration(env.target_cpu, env.src_cpu, env->sd->span_weight, p->pid, p->tgid, p->real_parent->pid);
+			record_migration(env.dst_cpu, env.src_cpu, env.sd->span_weight, p->pid, p->tgid, p->real_parent->pid);
 		} else {
 			schedstat_inc(sd->alb_failed);
 		}
