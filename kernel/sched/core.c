@@ -2950,7 +2950,7 @@ static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flag
 	bool stop_pending, complete = false;
 
 	/* Can the task run on the task's current CPU? If so, we're done */
-	if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask)) {
+	if (cpumask_test_cpu(task_cpu(p), &p->cpus_mask) && system_state < SYSTEM_RUNNING) {
 		struct task_struct *push_task = NULL;
 
 		if ((flags & SCA_MIGRATE_ENABLE) &&
@@ -3322,6 +3322,42 @@ void relax_compatible_cpus_allowed_ptr(struct task_struct *p)
 	WARN_ON_ONCE(ret);
 }
 
+static void set_resv_cpu(struct task_struct *p, int old_cpu, int new_cpu) {
+	struct task_group * tg = p->sched_task_group;
+
+	if (tg != NULL && tg->has_resv_mask && !cpumask_empty(&tg->resv_cpumask)) {
+		if (p->se.resv_cpu == -1)  // if task is new forked/created
+		{
+			if (cpumask_test_cpu(new_cpu, &tg->resv_cpumask))
+				p->se.resv_cpu = new_cpu;
+			else
+				printk(KERN_WARNING "The New Cpu is not in the reserve cpuset");
+		} else {
+			if (!cpumask_test_cpu(p->se.resv_cpu, &tg->resv_cpumask))
+				printk(KERN_WARNING "Reserve Cpu is not in the reserve cpuset");
+			if (!cpumask_test_cpu(old_cpu, &tg->resv_cpumask) && cpumask_test_cpu(new_cpu, &tg->resv_cpumask)) // move from spot core to resv core
+			{
+				p->se.resv_cpu = new_cpu;
+				list_del_init(&p->se.spot_node);
+			} else if (cpumask_test_cpu(old_cpu, &tg->resv_cpumask) && !cpumask_test_cpu(new_cpu, &tg->resv_cpumask)) // move from resv core to spot core
+			{
+				if (READ_ONCE(p->se.spot_node.next) != &p->se.spot_node || READ_ONCE(p->se.spot_node.prev) != &p->se.spot_node)
+					printk(KERN_WARNING "spot_node is not empty when at reserving core");
+				p->se.resv_cpu = old_cpu;
+				list_add(&p->se.spot_node, &cpu_rq(old_cpu)->spot_tasks);
+
+			} else if (cpumask_test_cpu(old_cpu, &tg->resv_cpumask) && cpumask_test_cpu(new_cpu, &tg->resv_cpumask)) // move from resv core to resv core
+			{
+				if (READ_ONCE(p->se.spot_node.next) != &p->se.spot_node || READ_ONCE(p->se.spot_node.prev) != &p->se.spot_node)
+					printk(KERN_WARNING "spot_node is not empty when at reserving core");
+				p->se.resv_cpu = new_cpu;
+
+			}
+		}
+	}
+	return;
+}
+
 void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 {
 #ifdef CONFIG_SCHED_DEBUG
@@ -3374,6 +3410,8 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 		sched_mm_cid_migrate_from(p);
 		perf_event_task_migrate(p);
 	}
+	if (p->sched_class == &fair_sched_class)
+		set_resv_cpu(p, task_cpu(p), new_cpu);
 
 	__set_task_cpu(p, new_cpu);
 }
@@ -4325,6 +4363,11 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		smp_cond_load_acquire(&p->on_cpu, !VAL);
 
 		cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
+		if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+			if (!cpumask_test_cpu(cpu, &task_group(p)->resv_cpumask))
+				cpu = cpumask_any_and_distribute(cpu_online_mask, &task_group(p)->resv_cpumask);
+		}
+
 		if (task_cpu(p) != cpu) {
 			if (p->in_iowait) {
 				delayacct_blkio_end(p);
@@ -4334,6 +4377,11 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 			wake_flags |= WF_MIGRATED;
 			psi_ttwu_dequeue(p);
 			set_task_cpu(p, cpu);
+		} else if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+			if (p->se.resv_cpu == -1)
+				set_resv_cpu(p, cpu, cpu);
+			else
+				printk(KERN_WARNING "reserve cpu is not cleaned");
 		}
 #else
 		cpu = task_cpu(p);
@@ -4498,7 +4546,10 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.vruntime			= 0;
 	p->se.vlag			= 0;
 	p->se.slice			= sysctl_sched_base_slice;
+
+	p->se.resv_cpu		= -1;
 	INIT_LIST_HEAD(&p->se.group_node);
+	INIT_LIST_HEAD(&p->se.spot_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	p->se.cfs_rq			= NULL;
@@ -4845,6 +4896,7 @@ void wake_up_new_task(struct task_struct *p)
 {
 	struct rq_flags rf;
 	struct rq *rq;
+	int cand_cpu;
 
 	raw_spin_lock_irqsave(&p->pi_lock, rf.flags);
 	WRITE_ONCE(p->__state, TASK_RUNNING);
@@ -4859,7 +4911,19 @@ void wake_up_new_task(struct task_struct *p)
 	 */
 	p->recent_used_cpu = task_cpu(p);
 	rseq_migrate(p);
-	__set_task_cpu(p, select_task_rq(p, task_cpu(p), WF_FORK));
+
+	cand_cpu = select_task_rq(p, task_cpu(p), WF_FORK);
+
+	if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+		if (!cpumask_test_cpu(cand_cpu, &task_group(p)->resv_cpumask))
+			cand_cpu = cpumask_any_and_distribute(cpu_online_mask, &task_group(p)->resv_cpumask);
+		
+		__set_task_cpu(p, cand_cpu);
+		p->se.resv_cpu = task_cpu(p);
+		
+	} else {
+		__set_task_cpu(p, cand_cpu);
+	}
 #endif
 	rq = __task_rq_lock(p, &rf);
 	update_rq_clock(rq);
@@ -9910,6 +9974,7 @@ void __init sched_init(void)
 
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		init_cfs_bandwidth(&root_task_group.cfs_bandwidth, NULL);
+		root_task_group.has_resv_mask = 0;
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 #ifdef CONFIG_RT_GROUP_SCHED
 		root_task_group.rt_se = (struct sched_rt_entity **)ptr;
@@ -9994,8 +10059,11 @@ void __init sched_init(void)
 		rq->idle_stamp = 0;
 		rq->avg_idle = 2*sysctl_sched_migration_cost;
 		rq->max_idle_balance_cost = sysctl_sched_migration_cost;
+		rq->resv_tg = NULL;
+		rq->resv_nr_running = 0;
 
 		INIT_LIST_HEAD(&rq->cfs_tasks);
+		INIT_LIST_HEAD(&rq->spot_tasks);
 
 		rq_attach_root(rq, &def_root_domain);
 #ifdef CONFIG_NO_HZ_COMMON
@@ -10342,7 +10410,7 @@ struct task_group *sched_create_group(struct task_group *parent)
 		goto err;
 
 	alloc_uclamp_sched_group(tg, parent);
-
+	tg->has_resv_mask = 0;
 	return tg;
 
 err:
@@ -10501,7 +10569,7 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	tg = sched_create_group(parent);
 	if (IS_ERR(tg))
 		return ERR_PTR(-ENOMEM);
-
+	tg->has_resv_mask = 0;
 	return &tg->css;
 }
 
@@ -10942,6 +11010,74 @@ static int cpu_cfs_quota_write_s64(struct cgroup_subsys_state *css,
 	return tg_set_cfs_quota(css_tg(css), cfs_quota_us);
 }
 
+static ssize_t cpu_reserved_cpuset_write(struct kernfs_open_file *of,
+				    char *buf, size_t nbytes, loff_t off)
+{
+	struct task_group * tg = css_tg(of_css(of));
+	int cpu, retval = -ENODEV;
+	struct css_task_iter it;
+	struct task_struct *task;
+
+	buf = strstrip(buf);
+
+	cpus_read_lock();
+	mutex_lock(&cfs_constraints_mutex);
+
+	cpumask_clear(&tg->resv_cpumask);
+	retval = cpulist_parse(buf, &tg->resv_cpumask);
+	if (retval < 0)
+		goto resv_unlock;
+
+	tg->has_resv_mask = 1;
+
+	for_each_cpu(cpu, &tg->resv_cpumask) {
+		struct rq * rq = cpu_rq(cpu);
+		struct rq_flags rf;
+		rq_lock(rq, &rf);
+		rq->resv_tg = tg;
+		rq_unlock(rq, &rf);
+	}
+	mutex_unlock(&cfs_constraints_mutex);
+
+
+	css_task_iter_start(&tg->css, 0, &it);
+	while ((task = css_task_iter_next(&it))) {
+		struct rq_flags rf;
+		struct rq * rq = task_rq_lock(task, &rf);
+		if (!cpumask_empty(&task->sched_task_group->resv_cpumask)) {
+			if (!cpumask_test_cpu(task_cpu(task), &task->sched_task_group->resv_cpumask)) {
+				int dest_cpu = cpumask_any_and_distribute(cpu_online_mask, &task->sched_task_group->resv_cpumask);
+				update_rq_clock(rq);
+				affine_move_task(rq, task, &rf, dest_cpu, 0);
+
+				continue;
+			} else {
+				task->se.resv_cpu = task_cpu(task);
+				task_rq_unlock(rq, task, &rf);
+			}
+		} else {
+			task_rq_unlock(rq, task, &rf);
+		}
+	}
+	css_task_iter_end(&it);
+
+
+	for_each_cpu(cpu, &tg->resv_cpumask) {
+		struct rq * rq = cpu_rq(cpu);
+		struct rq_flags rf;
+		rq_lock(rq, &rf);
+		if (rq->curr == rq->idle || rq->curr->sched_task_group != tg)
+			resched_curr(rq);
+		rq_unlock(rq, &rf);
+	}
+
+resv_unlock:
+	cpus_read_unlock();
+
+	return retval ?: nbytes;
+
+}
+
 static u64 cpu_cfs_period_read_u64(struct cgroup_subsys_state *css,
 				   struct cftype *cft)
 {
@@ -11178,6 +11314,10 @@ static struct cftype cpu_legacy_files[] = {
 		.name = "stat.local",
 		.seq_show = cpu_cfs_local_stat_show,
 	},
+	{
+		.name = "reserve_cpus",
+		.write = cpu_reserved_cpuset_write,
+	},
 #endif
 #ifdef CONFIG_RT_GROUP_SCHED
 	{
@@ -11405,6 +11545,10 @@ static struct cftype cpu_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.read_u64 = cpu_cfs_burst_read_u64,
 		.write_u64 = cpu_cfs_burst_write_u64,
+	},
+	{
+		.name = "reserve_cpus",
+		.write = cpu_reserved_cpuset_write,
 	},
 #endif
 #ifdef CONFIG_UCLAMP_TASK_GROUP

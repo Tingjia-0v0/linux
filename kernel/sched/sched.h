@@ -408,7 +408,8 @@ struct task_group {
 	/* Effective clamp values used for a task group */
 	struct uclamp_se	uclamp[UCLAMP_CNT];
 #endif
-
+	cpumask_t 	resv_cpumask;
+	int 		has_resv_mask;		// Whether the tg has reserve mask (mask can be empty)
 };
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -1055,6 +1056,7 @@ struct rq {
 	int			online;
 
 	struct list_head cfs_tasks;
+	struct list_head spot_tasks;
 
 	struct sched_avg	avg_rt;
 	struct sched_avg	avg_dl;
@@ -1151,6 +1153,8 @@ struct rq {
 	call_single_data_t	cfsb_csd;
 	struct list_head	cfsb_csd_list;
 #endif
+	struct task_group * resv_tg;
+	int 				resv_nr_running;
 };
 
 #ifdef CONFIG_FAIR_GROUP_SCHED

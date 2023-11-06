@@ -91,6 +91,8 @@ struct task_struct init_task
 	},
 	.se		= {
 		.group_node 	= LIST_HEAD_INIT(init_task.se.group_node),
+		.spot_node		= LIST_HEAD_INIT(init_task.se.spot_node),
+		.resv_cpu		= -1,
 	},
 	.rt		= {
 		.run_list	= LIST_HEAD_INIT(init_task.rt.run_list),

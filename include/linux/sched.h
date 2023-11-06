@@ -587,6 +587,9 @@ struct sched_entity {
 	 */
 	struct sched_avg		avg;
 #endif
+
+	struct list_head		spot_node; // Help link the se to the rq's spot_tasks list when se is a spot task
+	int						resv_cpu;  // Where the task comes from if se is a spot task
 };
 
 struct sched_rt_entity {

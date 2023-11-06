@@ -3642,6 +3642,8 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (entity_is_task(se)) {
 		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
 		list_del_init(&se->group_node);
+		list_del_init(&se->spot_node);
+		se->resv_cpu = -1;
 	}
 #endif
 	cfs_rq->nr_running--;
@@ -5423,6 +5425,12 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 			hrtimer_active(&rq_of(cfs_rq)->hrtick_timer))
 		return;
 #endif
+	if (entity_is_task(curr) && rq_of(cfs_rq)->resv_tg != NULL
+		&& curr->cfs_rq->tg->has_resv_mask == 1 
+		&&  curr->cfs_rq->tg != rq_of(cfs_rq)->resv_tg 
+		&& rq_of(cfs_rq)->resv_nr_running >= 1) 
+		resched_curr(rq_of(cfs_rq));
+
 }
 
 
@@ -6670,6 +6678,10 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	/* At this point se is NULL and we are at root level*/
 	add_nr_running(rq, 1);
 
+	if ((rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
+		|| (task_group(p)->has_resv_mask == 0)) // Currently Treat the normal task without reserving policy as high prioirty
+		rq->resv_nr_running++;
+	
 	/*
 	 * Since new tasks are assigned an initial util_avg equal to
 	 * half of the spare capacity of their CPU, tiny tasks have the
@@ -6761,6 +6773,10 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	/* At this point se is NULL and we are at root level*/
 	sub_nr_running(rq, 1);
 
+	if ((rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
+		|| (task_group(p)->has_resv_mask == 0)) // Currently Treat the normal task without reserving policy as high prioirty
+		rq->resv_nr_running--;
+	
 	/* balance early to pull high priority tasks */
 	if (unlikely(!was_sched_idle && sched_idle_rq(rq)))
 		rq->next_balance = jiffies;
@@ -7019,12 +7035,18 @@ find_idlest_group_cpu(struct sched_group *group, struct task_struct *p, int this
 	int shallowest_idle_cpu = -1;
 	int i;
 
+	cpumask_t	allowed_cpus_in_group;
+	cpumask_and(&allowed_cpus_in_group, sched_group_span(group), p->cpus_ptr);
+	if (task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask))
+		cpumask_and(&allowed_cpus_in_group, &allowed_cpus_in_group, &task_group(p)->resv_cpumask);
+	
+
 	/* Check if we have any choice: */
 	if (group->group_weight == 1)
 		return cpumask_first(sched_group_span(group));
 
 	/* Traverse only the allowed CPUs */
-	for_each_cpu_and(i, sched_group_span(group), p->cpus_ptr) {
+	for_each_cpu(i, &allowed_cpus_in_group) {
 		struct rq *rq = cpu_rq(i);
 
 		if (!sched_core_cookie_match(rq, p))
@@ -7033,7 +7055,11 @@ find_idlest_group_cpu(struct sched_group *group, struct task_struct *p, int this
 		if (sched_idle_cpu(i))
 			return i;
 
-		if (available_idle_cpu(i)) {
+		if (task_group(p)->has_resv_mask && cpumask_test_cpu(i, &task_group(p)->resv_cpumask)) {
+			if (task_group(p)->cfs_rq[i]->h_nr_running == 0) {
+				shallowest_idle_cpu = i;
+			}
+		} else if (available_idle_cpu(i)) {
 			struct cpuidle_state *idle = idle_get_state(rq);
 			if (idle && idle->exit_latency < min_exit_latency) {
 				/*
@@ -7072,6 +7098,10 @@ static inline int find_idlest_cpu(struct sched_domain *sd, struct task_struct *p
 	int new_cpu = cpu;
 
 	if (!cpumask_intersects(sched_domain_span(sd), p->cpus_ptr))
+		return prev_cpu;
+
+	if (task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)
+		&& !cpumask_intersects(sched_domain_span(sd), &task_group(p)->resv_cpumask))
 		return prev_cpu;
 
 	/*
@@ -8193,6 +8223,13 @@ static void check_preempt_wakeup_fair(struct rq *rq, struct task_struct *p, int 
 	if (test_tsk_need_resched(curr))
 		return;
 
+	// Preempt the curr task if it's a spot task
+	if (task_group(curr)->has_resv_mask == 1 && !cpumask_test_cpu(cpu_of(rq), &task_group(curr)->resv_cpumask)) 
+	{
+		if (task_group(p)->has_resv_mask == 0) goto preempt;
+		else if (cpumask_test_cpu(cpu_of(rq), &task_group(p)->resv_cpumask)) goto preempt;
+	}
+
 	/* Idle tasks are by definition preempted by non-idle tasks. */
 	if (unlikely(task_has_idle_policy(curr)) &&
 	    likely(!task_has_idle_policy(p)))
@@ -8268,6 +8305,165 @@ again:
 }
 #endif
 
+static struct task_struct * detach_resv_tasks(struct rq * busiest, int dst_cpu);
+static void 				attach_resv_task(struct task_struct *p, int dest_cpu);
+static struct rq 		  * find_busiest_resv_queue(struct task_group *tg, int dst_cpu);
+
+struct task_struct *
+pick_next_resv_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
+{
+	struct cfs_rq 		* resv_cfs_rq;
+	struct sched_entity * se;
+	struct task_struct 	* p;
+	struct sched_entity * original_first_se = NULL;
+	struct cfs_rq 		* cfs_rq = &rq->cfs;
+	struct rq 			* busiest_resv_rq = NULL;
+	struct rq_flags rf2;
+	struct task_struct 	* new_task = NULL;
+
+	if (rq->resv_tg == NULL)
+		return NULL;
+	
+	resv_cfs_rq = rq->resv_tg->cfs_rq[cpu_of(rq)];
+	if (resv_cfs_rq->throttled)
+		return NULL;
+
+	if (!sched_fair_runnable(rq))
+		goto idle;
+	
+	// Find original first task
+	if (!prev || prev->sched_class != &fair_sched_class) {
+		original_first_se = pick_next_entity(cfs_rq);
+	} else {
+		struct sched_entity *curr = cfs_rq->curr;
+
+		if (curr) {
+			if (curr->on_rq)
+				update_curr(cfs_rq);
+			else
+				curr = NULL;
+		}
+
+		original_first_se = pick_next_entity(cfs_rq);
+	}
+
+	if (original_first_se == NULL) {
+		printk(KERN_WARNING "original first se is nullptr");
+		goto again;
+	}
+	
+	if (entity_is_task(original_first_se) || original_first_se->my_q->tg->has_resv_mask == 0) 
+		return NULL;
+		
+again:
+	if (resv_cfs_rq->h_nr_running == 0)
+		goto idle;
+	if (!prev || prev->sched_class != &fair_sched_class)
+		goto simple;
+
+	do {
+		struct sched_entity *curr = resv_cfs_rq->curr;
+
+		if (curr) {
+			if (curr->on_rq)
+				update_curr(resv_cfs_rq);
+			else
+				curr = NULL;
+		}
+
+		se = pick_next_entity(resv_cfs_rq);
+
+		resv_cfs_rq = group_cfs_rq(se);
+	} while (resv_cfs_rq);
+
+	p = task_of(se);
+
+	if (prev != p) {
+		struct sched_entity *pse = &(prev->se);
+
+		while (!(resv_cfs_rq = is_same_group(se, pse))) {
+			int se_depth = se->depth;
+			int pse_depth = pse->depth;
+
+			if (se_depth <= pse_depth) {
+				put_prev_entity(cfs_rq_of(pse), pse);
+				pse = parent_entity(pse);
+			}
+			if (se_depth >= pse_depth) {
+				set_next_entity(cfs_rq_of(se), se);
+				se = parent_entity(se);
+			}
+		}
+
+		put_prev_entity(resv_cfs_rq, pse);
+		set_next_entity(resv_cfs_rq, se);
+	}
+
+	goto done;
+
+simple:
+	if (prev)
+		put_prev_task(rq, prev);
+	
+	se = rq->resv_tg->se[cpu_of(rq)];
+	set_next_entity(&rq->cfs, se);
+	resv_cfs_rq = group_cfs_rq(se);
+	do {
+		se = pick_next_entity(resv_cfs_rq);
+		set_next_entity(resv_cfs_rq, se);
+		resv_cfs_rq = group_cfs_rq(se);
+	} while (resv_cfs_rq);
+
+	p = task_of(se);
+
+done: __maybe_unused;
+	list_move(&p->se.group_node, &rq->cfs_tasks);
+
+	if (hrtick_enabled_fair(rq))
+		hrtick_start_fair(rq, p);
+
+	update_misfit_status(p, rq);
+
+	return p;
+
+idle:
+	if (!rf)
+		return NULL;
+	
+	rq_unlock(rq, rf);
+	rcu_read_lock();
+
+	busiest_resv_rq = find_busiest_resv_queue(rq->resv_tg, cpu_of(rq));
+	if (busiest_resv_rq == NULL) {
+		rcu_read_unlock();
+		rq_lock(rq, rf);
+		update_rq_clock(rq);
+		return NULL;
+	}
+	
+	rq_lock_irqsave(busiest_resv_rq, &rf2);
+
+	update_rq_clock(busiest_resv_rq);
+	new_task = detach_resv_tasks(busiest_resv_rq, cpu_of(rq));
+
+	rq_unlock(busiest_resv_rq, &rf2);
+	
+	if (new_task == NULL) {
+		rcu_read_unlock();
+		rq_lock(rq, rf);
+		update_rq_clock(rq);
+		return NULL;
+	}
+	
+	attach_resv_task(new_task, cpu_of(rq));
+
+	rcu_read_unlock();
+	rq_lock(rq, rf);
+	update_rq_clock(rq);
+	local_irq_restore(rf2.flags);
+	goto again;
+}
+
 struct task_struct *
 pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
@@ -8275,6 +8471,13 @@ pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 	struct sched_entity *se;
 	struct task_struct *p;
 	int new_tasks;
+
+	if (rq->resv_tg && !cpumask_empty(&rq->resv_tg->resv_cpumask)){
+		struct task_struct * next_resv_task = pick_next_resv_task(rq, prev, rf);
+		if (next_resv_task)
+			return next_resv_task;
+		update_rq_clock(rq);
+	}
 
 again:
 	if (!sched_fair_runnable(rq))
@@ -8845,6 +9048,38 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		}
 
 		return 0;
+	}
+	// If there are idle reserve core and the migration intends to move it to the spot core
+	// We should disable this migration
+	if (task_group(p)->has_resv_mask == 1
+		&& cpumask_test_cpu(task_cpu(p), & task_group(p)->resv_cpumask)
+		&& !cpumask_test_cpu(env->dst_cpu, & task_group(p)->resv_cpumask)) {
+		bool idle_resv_core = false;
+		int cpu;
+		for_each_cpu(cpu, &p->sched_task_group->resv_cpumask) {
+			int resv_task_num = p->sched_task_group->cfs_rq[cpu]->h_nr_running;
+			if ((cpu == task_cpu(p) && resv_task_num <= 1)|| (cpu != task_cpu(p) && resv_task_num == 0)) {
+				idle_resv_core = true;
+				break;
+			}
+			
+		}
+		if (idle_resv_core)
+			return 0;
+
+	}
+
+	// If the curr of src_rq is not from reserving cgroup or the curr task is spot, 
+	// skip it. Since it might get the cpu soon.
+	if (task_group(p)->has_resv_mask == 1
+		&& cpumask_test_cpu(task_cpu(p), & task_group(p)->resv_cpumask)
+		&& !cpumask_test_cpu(env->dst_cpu, & task_group(p)->resv_cpumask)) {
+		if (env->src_rq->curr->sched_class != &fair_sched_class)
+			return 0;
+		if (task_group(env->src_rq->curr)->has_resv_mask == 0)
+			return 0;
+		if (task_group(env->src_rq->curr) != task_group(p))
+			return 0;
 	}
 
 	/* Record that we found at least one task that could run on dst_cpu */
@@ -10208,7 +10443,7 @@ static bool update_pick_idlest(struct sched_group *idlest,
 static struct sched_group *
 find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 {
-	struct sched_group *idlest = NULL, *local = NULL, *group = sd->groups;
+	struct sched_group *idlest = NULL, *local = NULL, *group = sd->groups, *resv_idlest = NULL;
 	struct sg_lb_stats local_sgs, tmp_sgs;
 	struct sg_lb_stats *sgs;
 	unsigned long imbalance;
@@ -10219,12 +10454,21 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 
 	do {
 		int local_group;
+		int sum_resv_root_nr_running = 0;
+		int sum_resv_nr_running = 0;
+		int sum_resv_cpus = 0;
+		int cpu;
 
 		/* Skip over this group if it has no CPUs allowed */
 		if (!cpumask_intersects(sched_group_span(group),
 					p->cpus_ptr))
 			continue;
 
+		if (task_group(p)->has_resv_mask == 1
+			&& !cpumask_empty(&task_group(p)->resv_cpumask)
+			&& !cpumask_intersects(sched_group_span(group), &task_group(p)->resv_cpumask))
+			continue;
+		
 		/* Skip over this group if no cookie matched */
 		if (!sched_group_cookie_match(cpu_rq(this_cpu), p, group))
 			continue;
@@ -10241,13 +10485,37 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 
 		update_sg_wakeup_stats(sd, group, sgs, p);
 
-		if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
+		if (task_group(p)->has_resv_mask == 1 && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+			for_each_cpu_and(cpu, sched_group_span(group), &task_group(p)->resv_cpumask) {
+				sum_resv_root_nr_running += cpu_rq(cpu)->resv_nr_running;
+				sum_resv_root_nr_running += cpu_rq(cpu)->nr_running - 
+											(&cpu_rq(cpu)->cfs)->h_nr_running;
+				sum_resv_nr_running 	 += task_group(p)->cfs_rq[cpu]->h_nr_running;
+				sum_resv_cpus += 1;
+			}
+
+			// We find one group that has an idle cpu (including all reserve tasks and normal task )
+			if (sum_resv_root_nr_running < sum_resv_cpus) 
+			{
+				idlest = group;
+				idlest_sgs = *sgs;
+				return idlest;
+			} else if (sum_resv_nr_running < sum_resv_cpus) // We find one group that has an idle reserve cpu
+			{
+				resv_idlest = group;
+			} else if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
+				idlest = group;
+				idlest_sgs = *sgs;
+			}
+		} else if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
 			idlest = group;
 			idlest_sgs = *sgs;
 		}
 
 	} while (group = group->next, group != sd->groups);
 
+	if (resv_idlest)
+		return resv_idlest;
 
 	/* There is no idlest group to push tasks to */
 	if (!idlest)
@@ -10345,6 +10613,8 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu)
 				struct cpumask *cpus = this_cpu_cpumask_var_ptr(select_rq_mask);
 
 				cpumask_and(cpus, sched_group_span(local), p->cpus_ptr);
+				if (task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask))
+					cpumask_and(cpus, cpus, &task_group(p)->resv_cpumask);
 				imb_numa_nr = min(cpumask_weight(cpus), sd->imb_numa_nr);
 			}
 
@@ -10865,6 +11135,36 @@ force_balance:
 out_balanced:
 	env->imbalance = 0;
 	return NULL;
+}
+
+static struct rq *find_busiest_resv_queue(struct task_group *tg, int dst_cpu)
+{
+	struct rq *busiest = NULL, *rq;
+	unsigned int busiest_nr = 0;
+	int i;
+
+	for_each_cpu(i, &tg->resv_cpumask) {
+		unsigned int nr_running;
+
+		if (i == dst_cpu)
+			continue;
+
+		rq = cpu_rq(i);
+
+		nr_running = rq->resv_nr_running;
+		if (nr_running <= 1)
+			continue;
+
+		// For now, use nr_running to determine the load
+		// Need updating
+		if (busiest_nr < nr_running) {
+			busiest_nr = nr_running;
+			busiest = rq;
+		}
+
+	}
+
+	return busiest;
 }
 
 /*
@@ -11596,6 +11896,9 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	int need_serialize, need_decay = 0;
 	u64 max_cost = 0;
 
+	if (busy)
+		return;
+	
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
 		/*
@@ -12091,7 +12394,7 @@ abort:
  * In CONFIG_NO_HZ_COMMON case, the idle balance kickee will do the
  * rebalancing for all the cpus for whom scheduler ticks are stopped.
  */
-static bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle)
+static bool __maybe_unused nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle)
 {
 	unsigned int flags = this_rq->nohz_idle_balance;
 
@@ -12306,6 +12609,52 @@ out:
 	return pulled_task;
 }
 
+static struct task_struct * detach_resv_tasks(struct rq * busiest, int dst_cpu)
+{
+	struct list_head *tasks = &busiest->cfs_tasks;
+	struct task_struct *p = NULL;
+	int loop = 0;
+
+	if (busiest->resv_tg == NULL)
+		return NULL;
+	struct cfs_rq * busiest_resv_cfs = busiest->resv_tg->cfs_rq[cpu_of(busiest)];
+
+	if (busiest_resv_cfs->h_nr_running <= 1 || rq_of(busiest_resv_cfs)->resv_nr_running <= 1)
+		return NULL;
+
+	while (!list_empty(tasks)) {
+		p = list_last_entry(tasks, struct task_struct, se.group_node);
+
+		if (READ_ONCE(p->on_cpu))										// Task is running
+			goto next;
+		if (task_group(p) != busiest->resv_tg) // Task is not a reserving task
+			goto next;
+		deactivate_task(busiest, p, DEQUEUE_NOCLOCK);
+		set_task_cpu(p, dst_cpu);
+		return p;
+next:
+		loop += 1;
+		if (loop > 10)
+			break;
+		list_move(&p->se.group_node, tasks);
+	}
+
+	return NULL;
+}
+
+
+static void attach_resv_task(struct task_struct *p, int dest_cpu)
+{
+	struct rq_flags rf;
+	rq_lock(cpu_rq(dest_cpu), &rf);
+	update_rq_clock(cpu_rq(dest_cpu));
+
+	list_del_init(&p->se.group_node);
+	attach_task(cpu_rq(dest_cpu), p);
+
+	rq_unlock(cpu_rq(dest_cpu), &rf);
+}
+
 /*
  * run_rebalance_domains is triggered when needed from the scheduler tick.
  * Also triggered for nohz idle balancing (with nohz_balancing_kick set).
@@ -12315,6 +12664,86 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	struct rq *this_rq = this_rq();
 	enum cpu_idle_type idle = this_rq->idle_balance ?
 						CPU_IDLE : CPU_NOT_IDLE;
+	struct task_struct * new_task = NULL;
+
+	if (this_rq->resv_tg && cpumask_test_cpu(this_rq->cpu, &this_rq->resv_tg->resv_cpumask)) {
+		struct task_struct *p;
+		struct task_struct *tmp_p;
+		
+		rcu_read_lock();
+		list_for_each_entry_safe(p, tmp_p, &this_rq->spot_tasks, se.spot_node) {
+			struct rq_flags rf, rf2;
+			struct rq * src_rq = cpu_rq(task_cpu(p));
+			struct rq * dest_rq = this_rq;
+			rq_lock_irqsave(src_rq, &rf2);
+			update_rq_clock(src_rq);
+
+			if (cpumask_test_cpu(task_cpu(p), &this_rq->resv_tg->resv_cpumask)) {
+				printk(KERN_INFO "spot task list error");
+				rq_unlock(src_rq, &rf2);
+				local_irq_restore(rf2.flags);
+				list_del_init(&p->se.spot_node);
+				continue;
+			}
+			
+			if (task_on_cpu(src_rq, p) || src_rq->curr == src_rq->idle) {
+				rq_unlock(src_rq, &rf2);
+				local_irq_restore(rf2.flags);
+				continue;
+			}
+
+			deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
+			set_task_cpu(p, cpu_of(dest_rq));
+			rq_unlock(src_rq, &rf2);
+
+			rq_lock(dest_rq, &rf);
+			update_rq_clock(dest_rq);
+			list_del_init(&p->se.group_node);
+			attach_task(dest_rq, p);
+			rq_unlock(dest_rq, &rf);
+
+			local_irq_restore(rf2.flags);
+			
+		}
+		rcu_read_unlock();
+		
+	}
+	// If there is no resv task on this cpu, fetch a running one from spot core
+
+	new_task = NULL;
+	if (this_rq->nr_running == 0 && this_rq->curr == this_rq->idle && 
+		this_rq->resv_tg && !cpumask_empty(&this_rq->resv_tg->resv_cpumask)) {
+		struct rq * busiest_resv_rq;
+		struct rq_flags rf;
+
+		rcu_read_lock();
+
+		busiest_resv_rq = find_busiest_resv_queue(this_rq->resv_tg, cpu_of(this_rq));
+		if (busiest_resv_rq == NULL) {
+			rcu_read_unlock();
+			goto pull_spot_tasks;
+		}
+		
+		rq_lock_irqsave(busiest_resv_rq, &rf);
+
+		update_rq_clock(busiest_resv_rq);
+		new_task = detach_resv_tasks(busiest_resv_rq, cpu_of(this_rq));
+
+		rq_unlock(busiest_resv_rq, &rf);
+
+		if (new_task == NULL) {
+			rcu_read_unlock();
+			local_irq_restore(rf.flags);
+			goto pull_spot_tasks;
+		}
+
+		attach_resv_task(new_task, cpu_of(this_rq));
+		// printk(KERN_INFO "moving: %d %d %d", new_task->pid, cpu_of(this_rq), cpu_of(busiest_resv_rq));
+		rcu_read_unlock();
+		local_irq_restore(rf.flags);
+		return;
+	} 
+pull_spot_tasks:
 
 	/*
 	 * If this CPU has a pending nohz_balance_kick, then do the
@@ -12324,12 +12753,13 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	 * load balance only within the local sched_domain hierarchy
 	 * and abort nohz_idle_balance altogether if we pull some load.
 	 */
-	if (nohz_idle_balance(this_rq, idle))
-		return;
+	// if (nohz_idle_balance(this_rq, idle))
+	// 	return;
 
 	/* normal load balance */
 	update_blocked_averages(this_rq->cpu);
-	rebalance_domains(this_rq, idle);
+	if (idle == CPU_IDLE)
+		rebalance_domains(this_rq, idle);
 }
 
 /*
@@ -12859,6 +13289,8 @@ void init_tg_cfs_entry(struct task_group *tg, struct cfs_rq *cfs_rq,
 	/* guarantee group entities always have weight */
 	update_load_set(&se->load, NICE_0_LOAD);
 	se->parent = parent;
+
+	cpumask_clear(&tg->resv_cpumask);
 }
 
 static DEFINE_MUTEX(shares_mutex);
