@@ -3642,8 +3642,8 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (entity_is_task(se)) {
 		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
 		list_del_init(&se->group_node);
-		list_del_init(&se->spot_node);
-		se->resv_cpu = -1;
+		// list_del_init(&se->spot_node);
+		// se->resv_cpu = -1;
 	}
 #endif
 	cfs_rq->nr_running--;
@@ -6679,8 +6679,11 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	add_nr_running(rq, 1);
 
 	if ((rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
-		|| (task_group(p)->has_resv_mask == 0)) // Currently Treat the normal task without reserving policy as high prioirty
-		rq->resv_nr_running++;
+		|| (task_group(p)->has_resv_mask == 0)) { // Currently Treat the normal task without reserving policy as high prioirty 
+		rq->resv_nr_running += 1;
+		if (rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
+			printk(KERN_WARNING "add reserve task %d %d %d", rq->cpu, rq->resv_nr_running, p->pid);
+	}
 	
 	/*
 	 * Since new tasks are assigned an initial util_avg equal to
@@ -6774,8 +6777,13 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	sub_nr_running(rq, 1);
 
 	if ((rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
-		|| (task_group(p)->has_resv_mask == 0)) // Currently Treat the normal task without reserving policy as high prioirty
-		rq->resv_nr_running--;
+		|| (task_group(p)->has_resv_mask == 0)) { // Currently Treat the normal task without reserving policy as high prioirty
+		rq->resv_nr_running -= 1;
+		if (rq->resv_tg != NULL && task_group(p) == rq->resv_tg)
+			printk(KERN_WARNING "sub reserve task %d %d %d", rq->cpu, rq->resv_nr_running, p->pid);
+	}
+
+	// if ((rq->resv_tg != NULL && task_group(p)->has_resv_mask == 1 && task_group(p) != rq->resv_tg))
 	
 	/* balance early to pull high priority tasks */
 	if (unlikely(!was_sched_idle && sched_idle_rq(rq)))
@@ -8066,6 +8074,9 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	/* SD_flags and WF_flags share the first nibble */
 	int sd_flag = wake_flags & 0xF;
 
+	// if (task_group(p)->has_resv_mask && cpumask_empty(&task_group(p)->resv_cpumask))
+	rcu_read_lock();
+	rcu_read_unlock();
 	/*
 	 * required for stable ->cpus_allowed
 	 */
@@ -8356,7 +8367,7 @@ pick_next_resv_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 		return NULL;
 		
 again:
-	if (resv_cfs_rq->h_nr_running == 0)
+	if (resv_cfs_rq->h_nr_running == 0 || rq->resv_nr_running == 0)
 		goto idle;
 	if (!prev || prev->sched_class != &fair_sched_class)
 		goto simple;
@@ -11157,14 +11168,16 @@ static struct rq *find_busiest_resv_queue(struct task_group *tg, int dst_cpu)
 
 		// For now, use nr_running to determine the load
 		// Need updating
-		if (busiest_nr < nr_running) {
+		if (busiest_nr > nr_running) {
 			busiest_nr = nr_running;
 			busiest = rq;
 		}
 
 	}
+	if (busiest != NULL)
+		printk(KERN_WARNING "find a valid busiest resve queue");
 
-	return busiest;
+	return NULL;
 }
 
 /*
@@ -12666,48 +12679,48 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 						CPU_IDLE : CPU_NOT_IDLE;
 	struct task_struct * new_task = NULL;
 
-	if (this_rq->resv_tg && cpumask_test_cpu(this_rq->cpu, &this_rq->resv_tg->resv_cpumask)) {
-		struct task_struct *p;
-		struct task_struct *tmp_p;
+	// if (this_rq->resv_tg && cpumask_test_cpu(this_rq->cpu, &this_rq->resv_tg->resv_cpumask)) {
+	// 	struct task_struct *p;
+	// 	struct task_struct *tmp_p;
 		
-		rcu_read_lock();
-		list_for_each_entry_safe(p, tmp_p, &this_rq->spot_tasks, se.spot_node) {
-			struct rq_flags rf, rf2;
-			struct rq * src_rq = cpu_rq(task_cpu(p));
-			struct rq * dest_rq = this_rq;
-			rq_lock_irqsave(src_rq, &rf2);
-			update_rq_clock(src_rq);
+	// 	rcu_read_lock();
+	// 	list_for_each_entry_safe(p, tmp_p, &this_rq->spot_tasks, se.spot_node) {
+	// 		struct rq_flags rf, rf2;
+	// 		struct rq * src_rq = cpu_rq(task_cpu(p));
+	// 		struct rq * dest_rq = this_rq;
+	// 		rq_lock_irqsave(src_rq, &rf2);
+	// 		update_rq_clock(src_rq);
 
-			if (cpumask_test_cpu(task_cpu(p), &this_rq->resv_tg->resv_cpumask)) {
-				printk(KERN_INFO "spot task list error");
-				rq_unlock(src_rq, &rf2);
-				local_irq_restore(rf2.flags);
-				list_del_init(&p->se.spot_node);
-				continue;
-			}
+	// 		if (cpumask_test_cpu(task_cpu(p), &this_rq->resv_tg->resv_cpumask)) {
+	// 			printk(KERN_INFO "spot task list error");
+	// 			rq_unlock(src_rq, &rf2);
+	// 			local_irq_restore(rf2.flags);
+	// 			list_del_init(&p->se.spot_node);
+	// 			continue;
+	// 		}
 			
-			if (task_on_cpu(src_rq, p) || src_rq->curr == src_rq->idle) {
-				rq_unlock(src_rq, &rf2);
-				local_irq_restore(rf2.flags);
-				continue;
-			}
+	// 		if (task_on_cpu(src_rq, p) || src_rq->curr == src_rq->idle) {
+	// 			rq_unlock(src_rq, &rf2);
+	// 			local_irq_restore(rf2.flags);
+	// 			continue;
+	// 		}
 
-			deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
-			set_task_cpu(p, cpu_of(dest_rq));
-			rq_unlock(src_rq, &rf2);
+	// 		deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
+	// 		set_task_cpu(p, cpu_of(dest_rq));
+	// 		rq_unlock(src_rq, &rf2);
 
-			rq_lock(dest_rq, &rf);
-			update_rq_clock(dest_rq);
-			list_del_init(&p->se.group_node);
-			attach_task(dest_rq, p);
-			rq_unlock(dest_rq, &rf);
+	// 		rq_lock(dest_rq, &rf);
+	// 		update_rq_clock(dest_rq);
+	// 		list_del_init(&p->se.group_node);
+	// 		attach_task(dest_rq, p);
+	// 		rq_unlock(dest_rq, &rf);
 
-			local_irq_restore(rf2.flags);
+	// 		local_irq_restore(rf2.flags);
 			
-		}
-		rcu_read_unlock();
+	// 	}
+	// 	rcu_read_unlock();
 		
-	}
+	// }
 	// If there is no resv task on this cpu, fetch a running one from spot core
 
 	new_task = NULL;

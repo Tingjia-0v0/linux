@@ -2130,7 +2130,11 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 {
 	p->on_rq = (flags & DEQUEUE_SLEEP) ? 0 : TASK_ON_RQ_MIGRATING;
+	if (p->on_rq == 0) {
+		p->se.resv_cpu = -1;
+	}
 
+	list_del_init(&p->se.spot_node);
 	dequeue_task(rq, p, flags);
 }
 
@@ -3323,7 +3327,7 @@ void relax_compatible_cpus_allowed_ptr(struct task_struct *p)
 }
 
 static void set_resv_cpu(struct task_struct *p, int old_cpu, int new_cpu) {
-	struct task_group * tg = p->sched_task_group;
+	struct task_group * tg = task_group(p);
 
 	if (tg != NULL && tg->has_resv_mask && !cpumask_empty(&tg->resv_cpumask)) {
 		if (p->se.resv_cpu == -1)  // if task is new forked/created
@@ -3344,14 +3348,20 @@ static void set_resv_cpu(struct task_struct *p, int old_cpu, int new_cpu) {
 				if (READ_ONCE(p->se.spot_node.next) != &p->se.spot_node || READ_ONCE(p->se.spot_node.prev) != &p->se.spot_node)
 					printk(KERN_WARNING "spot_node is not empty when at reserving core");
 				p->se.resv_cpu = old_cpu;
+				printk(KERN_WARNING "ADD to spot task %d %d", old_cpu, new_cpu);
+				list_del_init(&p->se.spot_node);
 				list_add(&p->se.spot_node, &cpu_rq(old_cpu)->spot_tasks);
 
 			} else if (cpumask_test_cpu(old_cpu, &tg->resv_cpumask) && cpumask_test_cpu(new_cpu, &tg->resv_cpumask)) // move from resv core to resv core
 			{
 				if (READ_ONCE(p->se.spot_node.next) != &p->se.spot_node || READ_ONCE(p->se.spot_node.prev) != &p->se.spot_node)
 					printk(KERN_WARNING "spot_node is not empty when at reserving core");
+				printk(KERN_WARNING "Move: from reserve to reserve core %d %d", old_cpu, new_cpu);
 				p->se.resv_cpu = new_cpu;
-
+				list_del_init(&p->se.spot_node);
+			} else {
+				list_del_init(&p->se.spot_node);
+				list_add(&p->se.spot_node, &cpu_rq(p->se.resv_cpu)->spot_tasks);
 			}
 		}
 	}
@@ -4362,10 +4372,16 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 		 */
 		smp_cond_load_acquire(&p->on_cpu, !VAL);
 
-		cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
+		
 		if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
-			if (!cpumask_test_cpu(cpu, &task_group(p)->resv_cpumask))
+			// if (!cpumask_test_cpu(cpu, &task_group(p)->resv_cpumask))
+			if (cpumask_test_cpu(task_cpu(p), &task_group(p)->resv_cpumask))
+				cpu = task_cpu(p);
+			else
 				cpu = cpumask_any_and_distribute(cpu_online_mask, &task_group(p)->resv_cpumask);
+			// cpu = task_cpu(p);
+		} else {
+			cpu = select_task_rq(p, p->wake_cpu, wake_flags | WF_TTWU);
 		}
 
 		if (task_cpu(p) != cpu) {
@@ -4378,10 +4394,7 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 			psi_ttwu_dequeue(p);
 			set_task_cpu(p, cpu);
 		} else if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
-			if (p->se.resv_cpu == -1)
-				set_resv_cpu(p, cpu, cpu);
-			else
-				printk(KERN_WARNING "reserve cpu is not cleaned");
+			set_resv_cpu(p, cpu, cpu);
 		}
 #else
 		cpu = task_cpu(p);
@@ -4914,7 +4927,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	cand_cpu = select_task_rq(p, task_cpu(p), WF_FORK);
 
-	if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask && !cpumask_empty(&task_group(p)->resv_cpumask)) {
+	if (p->sched_class == &fair_sched_class && task_group(p)->has_resv_mask) {
 		if (!cpumask_test_cpu(cand_cpu, &task_group(p)->resv_cpumask))
 			cand_cpu = cpumask_any_and_distribute(cpu_online_mask, &task_group(p)->resv_cpumask);
 		
