@@ -763,6 +763,7 @@ void update_rq_clock(struct rq *rq)
 	rq->clock_update_flags |= RQCF_UPDATED;
 #endif
 
+	// Time in nanosecond unit
 	delta = sched_clock_cpu(cpu_of(rq)) - rq->clock;
 	if (delta < 0)
 		return;
@@ -5661,6 +5662,8 @@ void scheduler_tick(void)
 	struct rq_flags rf;
 	unsigned long thermal_pressure;
 	u64 resched_latency;
+	int need_resched = 0;
+	int freq = 0;
 
 	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
 		arch_scale_freq_tick();
@@ -5675,6 +5678,12 @@ void scheduler_tick(void)
 	curr->sched_class->task_tick(rq, curr, 0);
 	if (sched_feat(LATENCY_WARN))
 		resched_latency = cpu_resched_latency(rq);
+
+	need_resched = curr->thread_info.flags & _TIF_NEED_RESCHED;
+	need_resched = need_resched >> TIF_NEED_RESCHED;
+	freq = arch_scale_freq_capacity(cpu) * cpu_khz;
+	sp_record_tick(cpu, curr->pid, need_resched, freq);
+
 	calc_global_load_tick(rq);
 	sched_core_tick(rq);
 	task_tick_mm_cid(rq, curr);

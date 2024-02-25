@@ -109,6 +109,10 @@ extern int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 extern int sched_rr_timeslice;
 
+extern void sp_record_tick(int cpu, int curr_pid, int need_resched, int frequency);
+extern void sp_record_enqueue(int option, int cpu, int nr_running);
+
+
 /*
  * Helpers for converting nanosecond timing to jiffy resolution
  */
@@ -2523,6 +2527,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 	}
 #endif
 
+	sp_record_enqueue(1, rq->cpu, rq->nr_running);
 	sched_update_tick_dependency(rq);
 }
 
@@ -2533,6 +2538,7 @@ static inline void sub_nr_running(struct rq *rq, unsigned count)
 		call_trace_sched_update_nr_running(rq, -count);
 	}
 
+	sp_record_enqueue(0, rq->cpu, rq->nr_running);
 	/* Check if we still need preemption */
 	sched_update_tick_dependency(rq);
 }

@@ -55,6 +55,37 @@
 #include "stats.h"
 #include "autogroup.h"
 
+#include <linux/module.h>
+
+typedef void (* sp_record_tick_t)(int, int, int, int);
+typedef void (* sp_record_enqueue_t)(int, int, int);
+
+__read_mostly volatile sp_record_tick_t 	sp_module_record_tick 		= NULL;
+__read_mostly volatile sp_record_enqueue_t 	sp_module_record_enqueue 	= NULL;
+
+void sp_record_tick(int cpu, int curr_pid, int need_resched, int frequency) {
+	if (sp_module_record_tick)
+		(* sp_module_record_tick)(cpu, curr_pid, need_resched, frequency);
+}
+
+void sp_record_enqueue(int option, int cpu, int nr_running) {
+	if (sp_module_record_enqueue)
+		(* sp_module_record_enqueue)(option, cpu, nr_running);
+}
+
+void set_module_record_tick(sp_record_tick_t __sp_module_record_tick) {
+	sp_module_record_tick = __sp_module_record_tick;
+}
+
+void set_module_record_enqueue(sp_record_enqueue_t __sp_module_record_enqueue) {
+	sp_module_record_enqueue = __sp_module_record_enqueue;
+}
+
+EXPORT_SYMBOL(set_module_record_tick);
+EXPORT_SYMBOL(set_module_record_enqueue);
+
+
+
 /*
  * The initial- and re-scaling of tunables is configurable
  *
