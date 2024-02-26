@@ -5681,7 +5681,7 @@ void scheduler_tick(void)
 
 	need_resched = curr->thread_info.flags & _TIF_NEED_RESCHED;
 	need_resched = need_resched >> TIF_NEED_RESCHED;
-	freq = (arch_scale_freq_capacity(cpu) >> 10) * cpu_khz;
+	freq = arch_scale_freq_capacity(cpu) * (cpu_khz / 1000);
 	sp_record_tick(cpu, curr->pid, need_resched, freq);
 
 	calc_global_load_tick(rq);
