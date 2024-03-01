@@ -109,7 +109,7 @@ extern int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 extern int sched_rr_timeslice;
 
-extern void sp_record_tick(int cpu, int curr_pid, int need_resched, int frequency);
+extern void sp_record_tick(int cpu, int curr_pid, unsigned long freq1, unsigned long freq2);
 extern void sp_record_enqueue(int option, int cpu, int nr_running);
 
 
@@ -1006,6 +1006,7 @@ struct rq {
 
 #ifdef CONFIG_SMP
 	unsigned int		ttwu_pending;
+	atomic_t			should_spin;
 #endif
 	u64			nr_switches;
 

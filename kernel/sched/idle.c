@@ -252,6 +252,27 @@ static void do_idle(void)
 	 * reschedule.
 	 */
 
+	if (atomic_read(&cpu_rq(cpu)->should_spin)) {
+		int sibling, spinning = 1;
+		const cpumask_t *m = cpu_smt_mask(cpu);
+		struct rq *rq = cpu_rq(cpu);
+		while (!tif_need_resched() && atomic_read(&rq->should_spin)) {
+			for_each_cpu(sibling, m)
+				if (sibling != cpu && cpu_rq(sibling)->nr_running) {
+					atomic_set(&rq->should_spin, 0);
+					spinning = 0;
+					break;
+				}
+		}
+		if (tif_need_resched()) {
+			if (spinning)
+				atomic_set(&rq->should_spin, 0);
+			schedule_idle();
+			return;
+		}
+	}
+
+
 	__current_set_polling();
 	tick_nohz_idle_enter();
 

@@ -57,15 +57,15 @@
 
 #include <linux/module.h>
 
-typedef void (* sp_record_tick_t)(int, int, int, int);
+typedef void (* sp_record_tick_t)(int, int, unsigned long, unsigned long);
 typedef void (* sp_record_enqueue_t)(int, int, int);
 
 __read_mostly volatile sp_record_tick_t 	sp_module_record_tick 		= NULL;
 __read_mostly volatile sp_record_enqueue_t 	sp_module_record_enqueue 	= NULL;
 
-void sp_record_tick(int cpu, int curr_pid, int need_resched, int frequency) {
+void sp_record_tick(int cpu, int curr_pid, unsigned long freq1, unsigned long freq2) {
 	if (sp_module_record_tick)
-		(* sp_module_record_tick)(cpu, curr_pid, need_resched, frequency);
+		(* sp_module_record_tick)(cpu, curr_pid, freq1, freq2);
 }
 
 void sp_record_enqueue(int option, int cpu, int nr_running) {

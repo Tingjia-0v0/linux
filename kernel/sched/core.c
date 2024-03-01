@@ -5662,11 +5662,12 @@ void scheduler_tick(void)
 	struct rq_flags rf;
 	unsigned long thermal_pressure;
 	u64 resched_latency;
-	int need_resched = 0;
-	int freq = 0;
+	unsigned long freq = 0, freq2 = 0;
 
 	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
 		arch_scale_freq_tick();
+	else
+		sp_record_tick(41, 0, 0, 0);
 
 	sched_clock_tick();
 
@@ -5679,10 +5680,9 @@ void scheduler_tick(void)
 	if (sched_feat(LATENCY_WARN))
 		resched_latency = cpu_resched_latency(rq);
 
-	need_resched = curr->thread_info.flags & _TIF_NEED_RESCHED;
-	need_resched = need_resched >> TIF_NEED_RESCHED;
-	freq = arch_scale_freq_capacity(cpu) * (cpu_khz / 1000);
-	sp_record_tick(cpu, curr->pid, need_resched, freq);
+	freq  = arch_freq_get_on_cpu(cpu);
+	freq2 = arch_scale_freq_capacity(cpu) * (cpu_khz);
+	sp_record_tick(cpu, curr->pid, freq, freq2);
 
 	calc_global_load_tick(rq);
 	sched_core_tick(rq);
@@ -5699,6 +5699,10 @@ void scheduler_tick(void)
 		wq_worker_tick(curr);
 
 #ifdef CONFIG_SMP
+	smp_mb__before_atomic();
+	atomic_dec_if_positive(&rq->should_spin);
+	smp_mb__after_atomic();
+
 	rq->idle_balance = idle_cpu(cpu);
 	trigger_load_balance(rq);
 #endif
@@ -6731,6 +6735,21 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 		psi_sched_switch(prev, next, !task_on_rq_queued(prev));
 
 		trace_sched_switch(sched_mode & SM_MASK_PREEMPT, prev, next, prev_state);
+
+		if (prev_state & TASK_DEAD && available_idle_cpu(cpu)) {
+			smp_mb__before_atomic();
+			atomic_set(&rq->should_spin, 0); // clean up early
+			smp_mb__after_atomic();
+		} else if (next->pid == 0) {
+			int sibling;
+			smp_mb__before_atomic();
+			atomic_set(&cpu_rq(cpu)->should_spin, 4);
+			for_each_cpu(sibling, cpu_smt_mask(cpu))
+				if (sibling != cpu && (!available_idle_cpu(sibling) || atomic_read(&cpu_rq(sibling)->should_spin)))
+					atomic_set(&cpu_rq(cpu)->should_spin, 0);
+			smp_mb__after_atomic();
+		}
+
 
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next, &rf);
@@ -10023,6 +10042,8 @@ void __init sched_init(void)
 		rq->idle_stamp = 0;
 		rq->avg_idle = 2*sysctl_sched_migration_cost;
 		rq->max_idle_balance_cost = sysctl_sched_migration_cost;
+
+		atomic_set(&rq->should_spin,0);
 
 		INIT_LIST_HEAD(&rq->cfs_tasks);
 
