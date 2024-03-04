@@ -34,6 +34,22 @@
 #include <asm/cpufeature.h>
 #include <asm/intel-family.h>
 #include "../drivers/thermal/intel/thermal_interrupt.h"
+#include <linux/module.h>
+
+typedef void (* sp_record_update_pstate_t)(int, int, int);
+
+__read_mostly volatile sp_record_update_pstate_t 	sp_module_record_update_pstate 		= NULL;
+
+void sp_record_update_pstate(int cpu, int old_pstate, int target_pstate) {
+	if (sp_module_record_update_pstate)
+		(* sp_module_record_update_pstate)(cpu, old_pstate, target_pstate);
+}
+
+void set_module_record_update_pstate(sp_record_update_pstate_t __sp_module_record_update_pstate) {
+	sp_module_record_update_pstate = __sp_module_record_update_pstate;
+}
+
+EXPORT_SYMBOL(set_module_record_update_pstate);
 
 #define INTEL_PSTATE_SAMPLING_INTERVAL	(10 * NSEC_PER_MSEC)
 
@@ -2911,6 +2927,7 @@ static int intel_cpufreq_update_pstate(struct cpufreq_policy *policy,
 
 	cpu->pstate.current_pstate = target_pstate;
 
+	sp_record_update_pstate(cpu->cpu, old_pstate, target_pstate);
 	intel_cpufreq_trace(cpu, fast_switch ? INTEL_PSTATE_TRACE_FAST_SWITCH :
 			    INTEL_PSTATE_TRACE_TARGET, old_pstate);
 

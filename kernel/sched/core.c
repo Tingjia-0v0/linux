@@ -5688,6 +5688,10 @@ void scheduler_tick(void)
 	sched_core_tick(rq);
 	task_tick_mm_cid(rq, curr);
 
+	smp_mb__before_atomic();
+	atomic_dec_if_positive(&rq->should_spin);
+	smp_mb__after_atomic();
+
 	rq_unlock(rq, &rf);
 
 	if (sched_feat(LATENCY_WARN) && resched_latency)
@@ -5699,10 +5703,6 @@ void scheduler_tick(void)
 		wq_worker_tick(curr);
 
 #ifdef CONFIG_SMP
-	smp_mb__before_atomic();
-	atomic_dec_if_positive(&rq->should_spin);
-	smp_mb__after_atomic();
-
 	rq->idle_balance = idle_cpu(cpu);
 	trigger_load_balance(rq);
 #endif

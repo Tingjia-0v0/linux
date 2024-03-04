@@ -111,7 +111,7 @@ extern int sched_rr_timeslice;
 
 extern void sp_record_tick(int cpu, int curr_pid, unsigned long freq1, unsigned long freq2);
 extern void sp_record_enqueue(int option, int cpu, int nr_running);
-
+extern void sp_record_enter_idle(void);
 
 /*
  * Helpers for converting nanosecond timing to jiffy resolution

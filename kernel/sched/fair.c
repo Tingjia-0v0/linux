@@ -59,9 +59,10 @@
 
 typedef void (* sp_record_tick_t)(int, int, unsigned long, unsigned long);
 typedef void (* sp_record_enqueue_t)(int, int, int);
-
+typedef void (* sp_record_enter_idle_t)(void);
 __read_mostly volatile sp_record_tick_t 	sp_module_record_tick 		= NULL;
 __read_mostly volatile sp_record_enqueue_t 	sp_module_record_enqueue 	= NULL;
+__read_mostly volatile sp_record_enter_idle_t 	sp_module_record_enter_idle 	= NULL;
 
 void sp_record_tick(int cpu, int curr_pid, unsigned long freq1, unsigned long freq2) {
 	if (sp_module_record_tick)
@@ -73,6 +74,11 @@ void sp_record_enqueue(int option, int cpu, int nr_running) {
 		(* sp_module_record_enqueue)(option, cpu, nr_running);
 }
 
+void sp_record_enter_idle(void) {
+	if (sp_module_record_enter_idle)
+		(* sp_module_record_enter_idle)();
+}
+
 void set_module_record_tick(sp_record_tick_t __sp_module_record_tick) {
 	sp_module_record_tick = __sp_module_record_tick;
 }
@@ -81,8 +87,13 @@ void set_module_record_enqueue(sp_record_enqueue_t __sp_module_record_enqueue) {
 	sp_module_record_enqueue = __sp_module_record_enqueue;
 }
 
+void set_module_record_enter_idle(sp_record_enter_idle_t __sp_module_record_enter_idle) {
+	sp_module_record_enter_idle = __sp_module_record_enter_idle;
+}
+
 EXPORT_SYMBOL(set_module_record_tick);
 EXPORT_SYMBOL(set_module_record_enqueue);
+EXPORT_SYMBOL(set_module_record_enter_idle);
 
 
 
