@@ -5792,6 +5792,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (parent) {
 		WRITE_ONCE(memcg->swappiness, mem_cgroup_swappiness(parent));
 		WRITE_ONCE(memcg->oom_kill_disable, READ_ONCE(parent->oom_kill_disable));
+		WRITE_ONCE(memcg->oom_preemptible, READ_ONCE(parent->oom_preemptible));
 
 		page_counter_init(&memcg->memory, &parent->memory);
 		page_counter_init(&memcg->swap, &parent->swap);
@@ -7205,12 +7206,45 @@ static ssize_t memory_oom_preemptible_write(struct kernfs_open_file *of,
 	if (oom_preemptible != 0 && oom_preemptible != 1)
 		return -EINVAL;
 	
-	memcg->notify_owner = get_pid(task_tgid(current));
-	put_pid(memcg->notify_owner);
-	memcg->notify_owner = NULL;
-	printk(KERN_WARNING "CheckCurrentPIDc. pid: %d. tgid: %d.\n", current->pid, current->tgid);
 	WRITE_ONCE(memcg->oom_preemptible, oom_preemptible);
+	return nbytes;
+}
 
+static int memory_oom_notifyowner_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_seq(m);
+
+	if (memcg ->notify_owner == NULL) {
+		seq_printf(m, "%d\n", 0);
+	} else {
+		struct task_struct * listener = pid_task(memcg->notify_owner, PIDTYPE_TGID);
+		seq_printf(m, "%d\n", listener->pid);
+	}
+	return 0;
+}
+
+static ssize_t memory_oom_notifyowner_write(struct kernfs_open_file *of,
+				      char *buf, size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	int ret, addOwner;
+
+	buf = strstrip(buf);
+	if (!buf)
+		return -EINVAL;
+
+	ret = kstrtoint(buf, 0, &addOwner);
+	if (ret)
+		return ret;
+
+	if (addOwner != 0 && addOwner != 1)
+		return -EINVAL;
+	if (addOwner == 1) {
+		memcg->notify_owner = get_pid(task_tgid(current));
+	} else {
+		put_pid(memcg->notify_owner);
+		memcg->notify_owner = NULL;
+	}
 	return nbytes;
 }
 
@@ -7325,6 +7359,12 @@ static struct cftype memory_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
 		.seq_show = memory_oom_preemptible_show,
 		.write = memory_oom_preemptible_write,
+	},
+	{
+		.name = "oom.notifyowner",
+		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
+		.seq_show = memory_oom_notifyowner_show,
+		.write = memory_oom_notifyowner_write,
 	},
 	{
 		.name = "reclaim",

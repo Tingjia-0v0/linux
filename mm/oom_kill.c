@@ -339,25 +339,29 @@ static int oom_evaluate_task(struct task_struct *task, void *arg)
 		goto select;
 	}
 
-	points = oom_badness(task, oc->totalpages);
-	if (points == LONG_MIN || points < oc->chosen_points)
-		goto next;
-	// TingjiaCmt: if the task's mem_cg's preemptible is true;
 	// points = oom_badness(task, oc->totalpages);
-	// if (points == LONG_MIN) {
+	// if (points == LONG_MIN || points < oc->chosen_points)
 	// 	goto next;
-	// }
-	// if (oc->chosen_points != LONG_MIN) {
-	// 	if (oc->chosen->active_memcg->oom_preemptible && 
-	// 		!task->active_memcg->oom_preemptible) {
-	// 		goto next;
-	// 	}
-	// 	if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
-	// 		points < oc->chosen_points)
-	// 		goto next;
-	// 	}
-	// }
-	
+	// TingjiaCmt: if the task's mem_cg's preemptible is true;
+	points = oom_badness(task, oc->totalpages);
+	if (points == LONG_MIN) {
+		goto next;
+	}
+	if (oc->chosen_points != LONG_MIN) {
+		if (oc->chosen->active_memcg == NULL || task->active_memcg == NULL) {
+			printk(KERN_WARNING "memcg is null %d or %d\n", oc->chosen->pid, task->pid);
+			if (points < oc->chosen_points)
+				goto next;
+		}
+		if (oc->chosen->active_memcg->oom_preemptible && 
+			!task->active_memcg->oom_preemptible) {
+			goto next;
+		}
+		if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
+			points < oc->chosen_points) {
+			goto next;
+		}
+	}
 
 select:
 	if (oc->chosen)
@@ -1066,9 +1070,11 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 */
 	if (oom_group) {
 		// TingjiaCmt: send the signal to the notifier owner
-		// if (oom_group->oom_preemptible) {
-		// 	do_send_sig_info(SIGINT, SEND_SIG_PRIV, oom_group->, PIDTYPE_TGID);
-		// }
+		if (oom_group->oom_preemptible && oom_group->notify_owner != NULL) {
+			struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
+			printk(KERN_WARNING "Send signal to listener %d to handle the kill of preemptible cgroup\n", listener->pid);
+			do_send_sig_info(SIGINT, SEND_SIG_NOINFO, listener, PIDTYPE_TGID);
+		}
 		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
 		mem_cgroup_print_oom_group(oom_group);
 		mem_cgroup_scan_tasks(oom_group, oom_kill_memcg_member,
