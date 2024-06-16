@@ -220,6 +220,8 @@ struct mem_cgroup {
 	 * Should the OOM killer kill all belonging tasks, had it kill one?
 	 */
 	bool oom_group;
+	bool oom_preemptible;
+	struct pid * notify_owner;
 
 	/* protected by memcg_oom_lock */
 	bool		oom_lock;

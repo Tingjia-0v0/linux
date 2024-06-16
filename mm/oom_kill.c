@@ -342,6 +342,22 @@ static int oom_evaluate_task(struct task_struct *task, void *arg)
 	points = oom_badness(task, oc->totalpages);
 	if (points == LONG_MIN || points < oc->chosen_points)
 		goto next;
+	// TingjiaCmt: if the task's mem_cg's preemptible is true;
+	// points = oom_badness(task, oc->totalpages);
+	// if (points == LONG_MIN) {
+	// 	goto next;
+	// }
+	// if (oc->chosen_points != LONG_MIN) {
+	// 	if (oc->chosen->active_memcg->oom_preemptible && 
+	// 		!task->active_memcg->oom_preemptible) {
+	// 		goto next;
+	// 	}
+	// 	if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
+	// 		points < oc->chosen_points)
+	// 		goto next;
+	// 	}
+	// }
+	
 
 select:
 	if (oc->chosen)
@@ -1049,6 +1065,10 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 * If necessary, kill all tasks in the selected memory cgroup.
 	 */
 	if (oom_group) {
+		// TingjiaCmt: send the signal to the notifier owner
+		// if (oom_group->oom_preemptible) {
+		// 	do_send_sig_info(SIGINT, SEND_SIG_PRIV, oom_group->, PIDTYPE_TGID);
+		// }
 		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
 		mem_cgroup_print_oom_group(oom_group);
 		mem_cgroup_scan_tasks(oom_group, oom_kill_memcg_member,

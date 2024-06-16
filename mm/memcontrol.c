@@ -7179,6 +7179,41 @@ static ssize_t memory_oom_group_write(struct kernfs_open_file *of,
 	return nbytes;
 }
 
+static int memory_oom_preemptible_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_seq(m);
+
+	seq_printf(m, "%d\n", READ_ONCE(memcg->oom_preemptible));
+
+	return 0;
+}
+
+static ssize_t memory_oom_preemptible_write(struct kernfs_open_file *of,
+				      char *buf, size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	int ret, oom_preemptible;
+
+	buf = strstrip(buf);
+	if (!buf)
+		return -EINVAL;
+
+	ret = kstrtoint(buf, 0, &oom_preemptible);
+	if (ret)
+		return ret;
+
+	if (oom_preemptible != 0 && oom_preemptible != 1)
+		return -EINVAL;
+	
+	memcg->notify_owner = get_pid(task_tgid(current));
+	put_pid(memcg->notify_owner);
+	memcg->notify_owner = NULL;
+	printk(KERN_WARNING "CheckCurrentPIDc. pid: %d. tgid: %d.\n", current->pid, current->tgid);
+	WRITE_ONCE(memcg->oom_preemptible, oom_preemptible);
+
+	return nbytes;
+}
+
 static ssize_t memory_reclaim(struct kernfs_open_file *of, char *buf,
 			      size_t nbytes, loff_t off)
 {
@@ -7284,6 +7319,12 @@ static struct cftype memory_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
 		.seq_show = memory_oom_group_show,
 		.write = memory_oom_group_write,
+	},
+	{
+		.name = "oom.preemptible",
+		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
+		.seq_show = memory_oom_preemptible_show,
+		.write = memory_oom_preemptible_write,
 	},
 	{
 		.name = "reclaim",
