@@ -344,24 +344,30 @@ static int oom_evaluate_task(struct task_struct *task, void *arg)
 	// 	goto next;
 	// TingjiaCmt: if the task's mem_cg's preemptible is true;
 	points = oom_badness(task, oc->totalpages);
-	if (points == LONG_MIN) {
+	if (oc->chosen)
+		printk(KERN_WARNING "OOM_evaluate_task1: checking %d %d %ld %d %d %ld\n", task->pid, task->active_memcg == NULL, points, oc->chosen->pid, oc->chosen->active_memcg == NULL, oc->chosen_points);
+	else
+		printk(KERN_WARNING "OOM_evaluate_task2: checking %d %d %ld %d %ld\n", task->pid, task->active_memcg == NULL, points, oc->chosen == NULL, oc->chosen_points);
+	if (points == LONG_MIN || points < oc->chosen_points)
 		goto next;
-	}
-	if (oc->chosen_points != LONG_MIN) {
-		if (oc->chosen->active_memcg == NULL || task->active_memcg == NULL) {
-			printk(KERN_WARNING "memcg is null %d or %d\n", oc->chosen->pid, task->pid);
-			if (points < oc->chosen_points)
-				goto next;
-		}
-		if (oc->chosen->active_memcg->oom_preemptible && 
-			!task->active_memcg->oom_preemptible) {
-			goto next;
-		}
-		if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
-			points < oc->chosen_points) {
-			goto next;
-		}
-	}
+
+	// if (points == LONG_MIN) {
+	// 	goto next;
+	// }
+	// if (oc->chosen_points != LONG_MIN) {
+	// 	if (oc->chosen) {
+	// 		if (oc->chosen->active_memcg && task->active_memcg == NULL) {
+	// 			if (oc->chosen->active_memcg->oom_preemptible && 
+	// 				!task->active_memcg->oom_preemptible) {
+	// 				goto next;
+	// 			}
+	// 			if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
+	// 				points < oc->chosen_points) {
+	// 				goto next;
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 select:
 	if (oc->chosen)
