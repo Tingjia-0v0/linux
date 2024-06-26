@@ -344,30 +344,32 @@ static int oom_evaluate_task(struct task_struct *task, void *arg)
 	// 	goto next;
 	// TingjiaCmt: if the task's mem_cg's preemptible is true;
 	points = oom_badness(task, oc->totalpages);
-	if (oc->chosen)
-		printk(KERN_WARNING "OOM_evaluate_task1: checking %d %d %ld %d %d %ld\n", task->pid, task->active_memcg == NULL, points, oc->chosen->pid, oc->chosen->active_memcg == NULL, oc->chosen_points);
-	else
-		printk(KERN_WARNING "OOM_evaluate_task2: checking %d %d %ld %d %ld\n", task->pid, task->active_memcg == NULL, points, oc->chosen == NULL, oc->chosen_points);
-	if (points == LONG_MIN || points < oc->chosen_points)
-		goto next;
 
-	// if (points == LONG_MIN) {
+	// if (oc->chosen)
+	// 	printk(KERN_WARNING "OOM_evaluate_task1: checking %d %d %ld %d %d %ld\n", task->pid, mem_cgroup_from_task(task) == NULL, points, oc->chosen->pid, mem_cgroup_from_task(oc->chosen) == NULL, oc->chosen_points);
+	// else
+	// 	printk(KERN_WARNING "OOM_evaluate_task2: checking %d %d %ld %d %ld\n", task->pid, mem_cgroup_from_task(task) == NULL, points, oc->chosen == NULL, oc->chosen_points);
+
+	// if (points == LONG_MIN || points < oc->chosen_points)
 	// 	goto next;
-	// }
-	// if (oc->chosen_points != LONG_MIN) {
-	// 	if (oc->chosen) {
-	// 		if (oc->chosen->active_memcg && task->active_memcg == NULL) {
-	// 			if (oc->chosen->active_memcg->oom_preemptible && 
-	// 				!task->active_memcg->oom_preemptible) {
-	// 				goto next;
-	// 			}
-	// 			if (oc->chosen->active_memcg->oom_preemptible == task->active_memcg->oom_preemptible && 
-	// 				points < oc->chosen_points) {
-	// 				goto next;
-	// 			}
-	// 		}
-	// 	}
-	// }
+
+	if (points == LONG_MIN) 
+		goto next;
+	
+	if (oc->chosen_points != LONG_MIN && oc->chosen) {
+		struct mem_cgroup * task_memcg = mem_cgroup_from_task(task);
+		struct mem_cgroup * chosen_memcg = mem_cgroup_from_task(task);
+		if (task_memcg && chosen_memcg) {
+			// printk(KERN_WARNING "OOM_evaluate_task3: checking %d %d\n", task_memcg->oom_preemptible, chosen_memcg->oom_preemptible);
+			// if (chosen_memcg->oom_preemptible && !task_memcg->oom_preemptible) 
+			// 	goto next;
+			if (chosen_memcg->oom_preemptible > task_memcg->oom_preemptible)
+				goto next;
+			
+			if (chosen_memcg->oom_preemptible == task_memcg->oom_preemptible && points < oc->chosen_points) 
+				goto next;
+		}
+	}
 
 select:
 	if (oc->chosen)
@@ -1076,10 +1078,10 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 */
 	if (oom_group) {
 		// TingjiaCmt: send the signal to the notifier owner
-		if (oom_group->oom_preemptible && oom_group->notify_owner != NULL) {
+		if (oom_group->oom_preemptible > 0 && oom_group->notify_owner != NULL) {
 			struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
 			printk(KERN_WARNING "Send signal to listener %d to handle the kill of preemptible cgroup\n", listener->pid);
-			do_send_sig_info(SIGINT, SEND_SIG_NOINFO, listener, PIDTYPE_TGID);
+			do_send_sig_info(SIGUSR1, SEND_SIG_NOINFO, listener, PIDTYPE_TGID);
 		}
 		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
 		mem_cgroup_print_oom_group(oom_group);

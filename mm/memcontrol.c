@@ -7203,7 +7203,7 @@ static ssize_t memory_oom_preemptible_write(struct kernfs_open_file *of,
 	if (ret)
 		return ret;
 
-	if (oom_preemptible != 0 && oom_preemptible != 1)
+	if (oom_preemptible < 0)
 		return -EINVAL;
 	
 	WRITE_ONCE(memcg->oom_preemptible, oom_preemptible);
