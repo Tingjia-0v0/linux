@@ -222,6 +222,7 @@ struct mem_cgroup {
 	bool oom_group;
 	int oom_preemptible;
 	struct pid * notify_owner;
+	int notify_value;
 
 	/* protected by memcg_oom_lock */
 	bool		oom_lock;

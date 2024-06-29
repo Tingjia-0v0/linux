@@ -1078,11 +1078,26 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 */
 	if (oom_group) {
 		// TingjiaCmt: send the signal to the notifier owner
-		if (oom_group->oom_preemptible > 0 && oom_group->notify_owner != NULL) {
+		if (oom_group->notify_owner != NULL) {
+			kernel_siginfo_t sig_i;
+			clear_siginfo(&sig_i);
+			sig_i.si_errno = 0;
+			sig_i.si_code = SI_KERNEL;
+			sig_i.si_int = oom_group->notify_value;
+
 			struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
-			printk(KERN_WARNING "Send signal to listener %d to handle the kill of preemptible cgroup\n", listener->pid);
-			do_send_sig_info(SIGUSR1, SEND_SIG_NOINFO, listener, PIDTYPE_TGID);
+			printk(KERN_WARNING "Send signal to listener %d to handle the cgroup oom\n", listener->pid);
+
+			if (oc->memcg == oom_group) {
+				sig_i.si_signo = SIGUSR1;
+				do_send_sig_info(SIGUSR1, &sig_i, listener, PIDTYPE_TGID);
+			} else {
+				sig_i.si_signo = SIGUSR2;
+				do_send_sig_info(SIGUSR2, &sig_i, listener, PIDTYPE_TGID);
+			}
+
 		}
+
 		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
 		mem_cgroup_print_oom_group(oom_group);
 		mem_cgroup_scan_tasks(oom_group, oom_kill_memcg_member,

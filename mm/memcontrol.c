@@ -7248,6 +7248,33 @@ static ssize_t memory_oom_notifyowner_write(struct kernfs_open_file *of,
 	return nbytes;
 }
 
+static int memory_oom_notifyvalue_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_seq(m);
+
+	seq_printf(m, "%d\n", memcg->notify_value);
+
+	return 0;
+}
+
+static ssize_t memory_oom_notifyvalue_write(struct kernfs_open_file *of,
+				      char *buf, size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	int ret, val;
+
+	buf = strstrip(buf);
+	if (!buf)
+		return -EINVAL;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	WRITE_ONCE(memcg->notify_value, val);
+	return nbytes;
+}
+
 static ssize_t memory_reclaim(struct kernfs_open_file *of, char *buf,
 			      size_t nbytes, loff_t off)
 {
@@ -7365,6 +7392,12 @@ static struct cftype memory_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
 		.seq_show = memory_oom_notifyowner_show,
 		.write = memory_oom_notifyowner_write,
+	},
+	{
+		.name = "oom.notifyvalue",
+		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
+		.seq_show = memory_oom_notifyvalue_show,
+		.write = memory_oom_notifyvalue_write,
 	},
 	{
 		.name = "reclaim",
