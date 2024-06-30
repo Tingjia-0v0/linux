@@ -1077,6 +1077,12 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	 * If necessary, kill all tasks in the selected memory cgroup.
 	 */
 	if (oom_group) {
+		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
+		mem_cgroup_print_oom_group(oom_group);
+		mem_cgroup_scan_tasks(oom_group, oom_kill_memcg_member,
+				      (void *)message);
+		mem_cgroup_put(oom_group);
+		
 		// TingjiaCmt: send the signal to the notifier owner
 		if (oom_group->notify_owner != NULL) {
 			kernel_siginfo_t sig_i;
@@ -1086,23 +1092,21 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 			sig_i.si_int = oom_group->notify_value;
 
 			struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
-			printk(KERN_WARNING "Send signal to listener %d to handle the cgroup oom\n", listener->pid);
+			if (listener) {
+				printk(KERN_WARNING "Send signal to listener %d to handle the cgroup oom\n", listener->pid);
 
-			if (oc->memcg == oom_group) {
-				sig_i.si_signo = SIGUSR1;
-				do_send_sig_info(SIGUSR1, &sig_i, listener, PIDTYPE_TGID);
+				if (oc->memcg == oom_group) {
+					sig_i.si_signo = SIGUSR1;
+					do_send_sig_info(SIGUSR1, &sig_i, listener, PIDTYPE_TGID);
+				} else {
+					sig_i.si_signo = SIGUSR2;
+					do_send_sig_info(SIGUSR2, &sig_i, listener, PIDTYPE_TGID);
+				}
 			} else {
-				sig_i.si_signo = SIGUSR2;
-				do_send_sig_info(SIGUSR2, &sig_i, listener, PIDTYPE_TGID);
+				printk(KERN_WARNING "Send signal to listener: listener is null %d", pid_nr(oom_group->notify_owner));
 			}
 
 		}
-
-		memcg_memory_event(oom_group, MEMCG_OOM_GROUP_KILL);
-		mem_cgroup_print_oom_group(oom_group);
-		mem_cgroup_scan_tasks(oom_group, oom_kill_memcg_member,
-				      (void *)message);
-		mem_cgroup_put(oom_group);
 	}
 }
 
