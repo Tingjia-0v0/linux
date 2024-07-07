@@ -5793,6 +5793,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		WRITE_ONCE(memcg->swappiness, mem_cgroup_swappiness(parent));
 		WRITE_ONCE(memcg->oom_kill_disable, READ_ONCE(parent->oom_kill_disable));
 		WRITE_ONCE(memcg->oom_preemptible, READ_ONCE(parent->oom_preemptible));
+		WRITE_ONCE(memcg->oom_victim, 0);
 
 		page_counter_init(&memcg->memory, &parent->memory);
 		page_counter_init(&memcg->swap, &parent->swap);
@@ -7210,6 +7211,37 @@ static ssize_t memory_oom_preemptible_write(struct kernfs_open_file *of,
 	return nbytes;
 }
 
+
+static int memory_oom_victim_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_seq(m);
+
+	seq_printf(m, "%d\n", READ_ONCE(memcg->oom_victim));
+
+	return 0;
+}
+
+static ssize_t memory_oom_victim_write(struct kernfs_open_file *of,
+				      char *buf, size_t nbytes, loff_t off)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+	int ret, oom_victim;
+
+	buf = strstrip(buf);
+	if (!buf)
+		return -EINVAL;
+
+	ret = kstrtoint(buf, 0, &oom_victim);
+	if (ret)
+		return ret;
+
+	if (oom_victim < 0)
+		return -EINVAL;
+	
+	WRITE_ONCE(memcg->oom_victim, oom_victim);
+	return nbytes;
+}
+
 static int memory_oom_notifyowner_show(struct seq_file *m, void *v)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_seq(m);
@@ -7386,6 +7418,12 @@ static struct cftype memory_files[] = {
 		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
 		.seq_show = memory_oom_preemptible_show,
 		.write = memory_oom_preemptible_write,
+	},
+	{
+		.name = "oom.victim",
+		.flags = CFTYPE_NOT_ON_ROOT | CFTYPE_NS_DELEGATABLE,
+		.seq_show = memory_oom_victim_show,
+		.write = memory_oom_victim_write,
 	},
 	{
 		.name = "oom.notifyowner",

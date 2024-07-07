@@ -394,8 +394,38 @@ static void select_bad_process(struct oom_control *oc)
 {
 	oc->chosen_points = LONG_MIN;
 
-	if (is_memcg_oom(oc))
-		mem_cgroup_scan_tasks(oc->memcg, oom_evaluate_task, oc);
+	if (is_memcg_oom(oc)) {
+		// TingjiaCmt: Ask the listener for a victim
+		struct task_struct * victim = NULL;
+		struct pid * victim_pid;
+
+		if (oc->memcg->notify_owner != NULL) {
+			struct task_struct * listener = pid_task(oc->memcg->notify_owner, PIDTYPE_TGID);
+			if (listener) {
+				// Send a signal to the listener, and the listener will then write a new value to oom.victim
+				do_send_sig_info(SIGUSR1, SEND_SIG_PRIV, listener, PIDTYPE_TGID);
+				// Wait for the listener to update the victim
+				WRITE_ONCE(oc->memcg->oom_victim, 0);
+				while (READ_ONCE(oc->memcg->oom_victim) == 0)
+					continue;
+				printk(KERN_WARNING "Choose OMM victim %d from listener's hint\n", READ_ONCE(oc->memcg->oom_victim));
+				
+				victim_pid = find_get_pid(READ_ONCE(oc->memcg->oom_victim));
+				if (victim_pid) {
+					victim = pid_task(victim_pid, PIDTYPE_TGID);
+					if (victim) {
+						printk(KERN_WARNING "get the victim process %d \n", victim->pid);
+						get_task_struct(victim);
+						oc->chosen = victim;
+					}
+					put_pid(victim_pid);
+				}
+			}
+		}
+		if (!oc->chosen) {
+			mem_cgroup_scan_tasks(oc->memcg, oom_evaluate_task, oc);
+		}
+	}
 	else {
 		struct task_struct *p;
 
@@ -1084,29 +1114,29 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 		mem_cgroup_put(oom_group);
 		
 		// TingjiaCmt: send the signal to the notifier owner
-		if (oom_group->notify_owner != NULL) {
-			kernel_siginfo_t sig_i;
-			clear_siginfo(&sig_i);
-			sig_i.si_errno = 0;
-			sig_i.si_code = SI_KERNEL;
-			sig_i.si_int = oom_group->notify_value;
+		// if (oom_group->notify_owner != NULL) {
+		// 	kernel_siginfo_t sig_i;
+		// 	clear_siginfo(&sig_i);
+		// 	sig_i.si_errno = 0;
+		// 	sig_i.si_code = SI_KERNEL;
+		// 	sig_i.si_int = oom_group->notify_value;
 
-			struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
-			if (listener) {
-				printk(KERN_WARNING "Send signal to listener %d to handle the cgroup oom\n", listener->pid);
+		// 	struct task_struct * listener = pid_task(oom_group->notify_owner, PIDTYPE_TGID);
+		// 	if (listener) {
+		// 		printk(KERN_WARNING "Send signal to listener %d to handle the cgroup oom\n", listener->pid);
 
-				if (oc->memcg == oom_group) {
-					sig_i.si_signo = SIGUSR1;
-					do_send_sig_info(SIGUSR1, &sig_i, listener, PIDTYPE_TGID);
-				} else {
-					sig_i.si_signo = SIGUSR2;
-					do_send_sig_info(SIGUSR2, &sig_i, listener, PIDTYPE_TGID);
-				}
-			} else {
-				printk(KERN_WARNING "Send signal to listener: listener is null %d", pid_nr(oom_group->notify_owner));
-			}
+		// 		if (oc->memcg == oom_group) {
+		// 			sig_i.si_signo = SIGUSR1;
+		// 			do_send_sig_info(SIGUSR1, &sig_i, listener, PIDTYPE_TGID);
+		// 		} else {
+		// 			sig_i.si_signo = SIGUSR2;
+		// 			do_send_sig_info(SIGUSR2, &sig_i, listener, PIDTYPE_TGID);
+		// 		}
+		// 	} else {
+		// 		printk(KERN_WARNING "Send signal to listener: listener is null %d", pid_nr(oom_group->notify_owner));
+		// 	}
 
-		}
+		// }
 	}
 }
 
